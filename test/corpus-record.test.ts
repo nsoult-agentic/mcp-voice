@@ -45,12 +45,18 @@ describe("CorpusRecordSchema — valid records", () => {
       expect(() => CorpusRecordSchema.parse({ ...validRecord(), register })).not.toThrow();
     }
   });
+
+  test("both v1 mediums are accepted", () => {
+    for (const medium of ["email", "matrix"] as const) {
+      expect(() => CorpusRecordSchema.parse({ ...validRecord(), medium })).not.toThrow();
+    }
+  });
 });
 
 describe("CorpusRecordSchema — invalid records fail", () => {
-  test("bad medium enum (slice 1 = email only) is rejected", () => {
-    // matrix is a v1 medium but NOT in scope for slice 1.
-    expect(() => CorpusRecordSchema.parse({ ...validRecord(), medium: "matrix" })).toThrow();
+  test("a medium outside the v1 scope is rejected", () => {
+    // doc/commit/pr are deferred post-v1; sms is not a medium at all.
+    expect(() => CorpusRecordSchema.parse({ ...validRecord(), medium: "doc" })).toThrow();
     expect(() => CorpusRecordSchema.parse({ ...validRecord(), medium: "sms" })).toThrow();
   });
 

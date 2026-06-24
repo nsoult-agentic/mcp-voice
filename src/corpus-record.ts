@@ -2,16 +2,16 @@
  * CorpusRecord — the canonical output contract (spec §4).
  *
  * Every ingested unit becomes one immutable record. This is the interface the
- * `storage` spec builds on; changing it is a breaking change. Slice 1 restricts
- * `medium` to `email` (§2 scope) and stores `text_clean` only — no raw blob
- * (D6) and no redacted field (D5). The schema is strict so a stray `text_raw`
- * or `text_redacted` cannot survive parsing.
+ * `storage` spec builds on; changing it is a breaking change. v1 restricts
+ * `medium` to `email` + `matrix` (§2 scope) and stores `text_clean` only — no
+ * raw blob (D6) and no redacted field (D5). The schema is strict so a stray
+ * `text_raw` or `text_redacted` cannot survive parsing.
  */
 import { createHash } from "node:crypto";
 import { z } from "zod";
 
-/** Mediums in scope for slice 1. `matrix` is a v1 medium but deferred (§2). */
-const MediumSchema = z.enum(["email"]);
+/** Mediums in scope (§2, D2): email + matrix. doc/commit/pr remain deferred. */
+const MediumSchema = z.enum(["email", "matrix"]);
 export type Medium = z.infer<typeof MediumSchema>;
 
 /** Register taxonomy (D1): chat | email | longform. */
@@ -19,11 +19,13 @@ const RegisterSchema = z.enum(["chat", "email", "longform"]);
 export type Register = z.infer<typeof RegisterSchema>;
 
 /**
- * Default medium→register map (§3). The content classifier (slice 2) may
- * override; slice 1 always takes the default.
+ * Default medium→register map (§3): the register a unit takes absent a strong
+ * content signal. The content classifier (`register.ts`) may override toward
+ * `longform`/`chat`; on a weak signal it falls back to exactly this default.
  */
 export const MEDIUM_REGISTER_DEFAULT = {
   email: "email",
+  matrix: "chat",
 } as const satisfies Record<Medium, Register>;
 
 /**

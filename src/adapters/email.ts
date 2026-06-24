@@ -11,26 +11,12 @@
  * mail sitting in INBOX (e.g. a note-to-self) — is dropped here, before any
  * processing, so its words never enter the corpus.
  */
+import type { RawUnit } from "./raw-unit";
 
 /** Operator identity config (lives in the Second Brain in production, D3). */
 export interface OperatorConfig {
   author_id: string;
   addresses: string[];
-}
-
-/**
- * A raw, as-pulled unit. `raw_text` is the message body before boundary
- * stripping (that happens later, in the pipeline). No third-party text reaches
- * this type — it is filtered out upstream of construction.
- */
-export interface RawUnit {
-  author_id: string;
-  author_address: string;
-  medium: "email";
-  source_uri: string;
-  thread_id: string | null;
-  timestamp: string;
-  raw_text: string;
 }
 
 /**
