@@ -14,6 +14,33 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # pgvector service — storage integration tests (spec 02) run against a real
+    # Postgres 17 + pgvector. Unit tests run regardless; DB tests gate on
+    # RUN_DB_TESTS and skip when no DB is configured (e.g. local runs).
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: voice_test
+          POSTGRES_USER: voice
+          POSTGRES_PASSWORD: voice
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U voice"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      RUN_DB_TESTS: "1"
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_NAME: voice_test
+      DB_USER: voice
+      DB_PASSWORD: voice
+
     steps:
       - uses: actions/checkout@v4
 
