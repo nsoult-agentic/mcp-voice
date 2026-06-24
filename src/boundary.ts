@@ -89,6 +89,13 @@ export function stripBoundaries(text: string): string {
  * LEADING quote block and the blank lines after it, keep everything below,
  * byte-identical (PRESERVE, §8). A message with no leading quote is returned
  * untouched; a message that is only a quote yields the empty string.
+ *
+ * LIMITATION (known, non-blocking): this keys off the plaintext "> " fallback,
+ * not the structured `m.in_reply_to` metadata, so it cannot distinguish a reply
+ * quote from an operator's OWN leading markdown blockquote — a message that
+ * legitimately opens with "> " has that block dropped. Acceptable for v1 (leading
+ * own-blockquotes are rare in chat); revisit by reading the relation metadata if
+ * it proves lossy in practice.
  */
 export function stripMatrixBoundaries(text: string): string {
   const lines = text.split("\n");

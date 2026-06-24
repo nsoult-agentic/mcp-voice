@@ -12,6 +12,7 @@
  * non-text content (images, files, notices), and system events (memberships)
  * are dropped here, before any processing, so their words never enter the corpus.
  */
+import { readString } from "./read-field";
 import type { RawUnit } from "./raw-unit";
 
 /** Operator identity config (lives in the Second Brain in production, D3). */
@@ -37,12 +38,6 @@ export interface MatrixAdapterDeps {
 
 export interface MatrixAdapter {
   pull(): Promise<RawUnit[]>;
-}
-
-/** Read a string field from a raw record, or undefined when absent/wrong-type. */
-function readString(record: Record<string, unknown>, key: string): string | undefined {
-  const value = record[key];
-  return typeof value === "string" ? value : undefined;
 }
 
 /** Read the event content sub-object, or undefined when absent/wrong-type. */

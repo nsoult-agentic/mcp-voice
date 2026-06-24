@@ -11,6 +11,7 @@
  * mail sitting in INBOX (e.g. a note-to-self) — is dropped here, before any
  * processing, so its words never enter the corpus.
  */
+import { readString } from "./read-field";
 import type { RawUnit } from "./raw-unit";
 
 /** Operator identity config (lives in the Second Brain in production, D3). */
@@ -35,12 +36,6 @@ export interface EmailAdapterDeps {
 
 export interface EmailAdapter {
   pull(): Promise<RawUnit[]>;
-}
-
-/** Read a string field from a raw message, or undefined when absent/wrong-type. */
-function readString(message: Record<string, unknown>, key: string): string | undefined {
-  const value = message[key];
-  return typeof value === "string" ? value : undefined;
 }
 
 /**
