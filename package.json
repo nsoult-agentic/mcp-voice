@@ -1,0 +1,20 @@
+{
+  "name": "mcp-voice",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/http.ts",
+    "test": "bun test",
+    "lint": "biome check src test",
+    "format": "biome format --write src test",
+    "deadcode": "knip",
+    "typecheck": "tsc --noEmit",
+    "quality": "biome ci src test && knip && tsc --noEmit"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
+    "@types/bun": "^1.3.9",
+    "knip": "^6.17.1",
+    "typescript": "^5.9.3"
+  }
+}
