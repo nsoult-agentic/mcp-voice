@@ -3,10 +3,10 @@
  *
  * Idempotent DDL: safe to run on every startup and in test setup. Creates the
  * pgvector extension, the isolated `voice.` schema, the register enum, the tier-1
- * `voice.exemplars` table with BOTH embedding columns, and the per-register
- * partial HNSW retrieval indexes (§6). The tier-2 `voice.profiles` table arrives
- * in a later slice. Embedding dimensions come from `vector.ts` so the schema and
- * the validation can never drift apart.
+ * `voice.exemplars` table with BOTH embedding columns, the per-register partial
+ * HNSW retrieval indexes (§6), and the tier-2 `voice.profiles` table with its
+ * one-active-version partial unique index (§10.6). Embedding dimensions come from
+ * `vector.ts` so the schema and the validation can never drift apart.
  */
 import { REGISTERS } from "./corpus-record";
 import type { Sql } from "./db";
@@ -58,6 +58,23 @@ const STATEMENTS: string[] = [
      ingest_version    text NOT NULL,
      profile_version   text
    )`,
+  // Tier-2: distilled per-register voice profiles (§4). Immutable per version.
+  `CREATE TABLE IF NOT EXISTS voice.profiles (
+     author_id          text NOT NULL,
+     register           voice.register NOT NULL,
+     version            text NOT NULL,
+     style_card         jsonb NOT NULL,
+     stylometric_vector jsonb NOT NULL,
+     style_centroid     vector(${STYLE_DIM}),
+     built_at           timestamptz NOT NULL,
+     exemplar_count     int NOT NULL,
+     is_active          boolean NOT NULL DEFAULT false,
+     PRIMARY KEY (author_id, register, version)
+   )`,
+  // Enforce AT MOST ONE active profile per (author_id, register) at the DB level
+  // (§10.6) — defense-in-depth behind the atomic activation swap.
+  `CREATE UNIQUE INDEX IF NOT EXISTS profiles_one_active
+     ON voice.profiles (author_id, register) WHERE is_active`,
   ...indexStatements(),
 ];
 
