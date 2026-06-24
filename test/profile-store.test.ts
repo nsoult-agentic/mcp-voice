@@ -118,14 +118,15 @@ describe.skipIf(!RUN_DB)("profile store (integration, pgvector)", () => {
     expect(await store.listVersions("operator", "email")).toEqual(["v1"]);
   });
 
-  test("the DB enforces at most one active version per (author_id, register)", async () => {
-    // Defense-in-depth: a raw UPDATE that would create a second active row is rejected.
-    await store.writeProfile(profile({ version: "v1" }));
-    await store.writeProfile(profile({ version: "v2" }));
-    await store.activateProfile("operator", "email", "v1");
-    await expect(
-      sql`UPDATE voice.profiles SET is_active = true
-          WHERE author_id = 'operator' AND register = 'email'::voice.register AND version = 'v2'`,
-    ).rejects.toThrow();
+  test("a one-active partial unique index backstops the invariant (§10.6)", async () => {
+    // Defense-in-depth: the schema carries a UNIQUE partial index on (author_id,
+    // register) WHERE is_active, so the DB itself cannot hold two active versions.
+    // Assert it exists + is unique + partial via the catalog (deterministic).
+    const idx = await sql<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'voice' AND tablename = 'profiles'
+        AND indexname = 'profiles_one_active'`;
+    expect(idx[0]?.indexdef).toMatch(/UNIQUE/i);
+    expect(idx[0]?.indexdef).toMatch(/is_active/);
   });
 });

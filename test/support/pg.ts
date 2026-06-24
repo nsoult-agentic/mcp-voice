@@ -21,5 +21,8 @@ export function testDb() {
     max: 5,
     idle_timeout: 5,
     connect_timeout: 10,
+    // Server-side caps so a stuck query / lock-wait fails fast in CI rather than
+    // hanging the whole test process until the job's outer timeout.
+    connection: { lock_timeout: "4000", statement_timeout: "30000" },
   });
 }
