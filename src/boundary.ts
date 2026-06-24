@@ -82,6 +82,37 @@ export function stripBoundaries(text: string): string {
 }
 
 /**
+ * Strip a Matrix rich-reply fallback (§5 step 3, §8). Unlike email, Matrix puts
+ * the quoted text FIRST: a leading contiguous run of "> …" lines (the first
+ * carrying the "<@mxid>" attribution), then a blank separator, then the
+ * operator's actual reply. So the rule is the inverse of email — drop the
+ * LEADING quote block and the blank lines after it, keep everything below,
+ * byte-identical (PRESERVE, §8). A message with no leading quote is returned
+ * untouched; a message that is only a quote yields the empty string.
+ *
+ * LIMITATION (known, non-blocking): this keys off the plaintext "> " fallback,
+ * not the structured `m.in_reply_to` metadata, so it cannot distinguish a reply
+ * quote from an operator's OWN leading markdown blockquote — a message that
+ * legitimately opens with "> " has that block dropped. Acceptable for v1 (leading
+ * own-blockquotes are rare in chat); revisit by reading the relation metadata if
+ * it proves lossy in practice.
+ */
+export function stripMatrixBoundaries(text: string): string {
+  const lines = text.split("\n");
+  if (lines.length === 0 || !QUOTE_RE.test(lines[0] ?? "")) {
+    return text;
+  }
+  let start = 0;
+  while (start < lines.length && QUOTE_RE.test(lines[start] ?? "")) {
+    start += 1;
+  }
+  while (start < lines.length && (lines[start] ?? "").trim() === "") {
+    start += 1;
+  }
+  return trimTrailingBlankLines(lines.slice(start)).join("\n");
+}
+
+/**
  * NORMALIZE-only operations (§8): Unicode NFC + control-character removal.
  * Explicitly does NOT lowercase, strip punctuation, or remove emoji — those are
  * voice tokens (PRESERVE). NFC runs via `String.prototype.normalize("NFC")`, so

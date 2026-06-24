@@ -3,10 +3,10 @@ import { describe, expect, test } from "bun:test";
 import { CorpusRecordSchema } from "../src/corpus-record.ts";
 import { runPipeline } from "../src/pipeline.ts";
 
-// Pipeline skeleton (spec §5): adapter → own-authorship filter → boundary strip
+// Pipeline (spec §5): adapter → own-authorship filter → boundary strip
 // → code/prose split → dedup → register classification → accounting → emit.
-// Slice 1: dedup is a pass-through (cluster_id = id, is_canonical = true), and
-// register defaults via the medium→register map. Whole pipeline is idempotent.
+// Slice 2 makes dedup (MinHash/LSH, keep-earliest), register classification, and
+// the matrix medium real. The whole pipeline stays pure and idempotent.
 
 // A RawUnit as produced by an adapter (post own-authorship filter). The pipeline
 // takes these and emits CorpusRecords.
@@ -26,6 +26,19 @@ function rawUnit(overrides: Record<string, unknown> = {}) {
       "-- ",
       "Nico · sent from my phone",
     ].join("\n"),
+    ...overrides,
+  };
+}
+
+// A matrix RawUnit as produced by the matrix adapter (medium "matrix").
+function matrixUnit(overrides: Record<string, unknown> = {}) {
+  return {
+    author_id: "operator",
+    medium: "matrix" as const,
+    source_uri: "matrix-event:$ev1",
+    thread_id: null,
+    timestamp: "2026-06-01T09:00:00.000Z",
+    raw_text: "yeah let's ship it after lunch 🚀",
     ...overrides,
   };
 }
@@ -63,8 +76,8 @@ describe("runPipeline — emits valid CorpusRecords (§4, §5)", () => {
   });
 });
 
-describe("runPipeline — dedup pass-through (slice 1)", () => {
-  test("each record's dedup_cluster_id equals its own id, is_canonical true", () => {
+describe("runPipeline — distinct units stay separate singletons (§8)", () => {
+  test("non-duplicate records each form their own canonical cluster", () => {
     const records = runPipeline(
       [rawUnit(), rawUnit({ source_uri: "message-id:<m2@host>", raw_text: "Totally different." })],
       { ingest_version: INGEST_VERSION },
@@ -76,10 +89,79 @@ describe("runPipeline — dedup pass-through (slice 1)", () => {
   });
 });
 
-describe("runPipeline — register default via medium→register map (§3)", () => {
-  test("an email-medium unit defaults to the email register", () => {
+describe("runPipeline — near-duplicate dedup, keep-earliest (§5, §8)", () => {
+  test("two near-identical units collapse to one canonical (earliest) record", () => {
+    const body =
+      "Thanks so much for sorting this out, I really appreciate the quick turnaround on it!";
+    const records = runPipeline(
+      [
+        rawUnit({
+          source_uri: "message-id:<late@host>",
+          timestamp: "2026-06-02T10:00:00.000Z",
+          raw_text: body.toUpperCase(),
+        }),
+        rawUnit({
+          source_uri: "message-id:<early@host>",
+          timestamp: "2026-06-01T09:00:00.000Z",
+          raw_text: body,
+        }),
+      ],
+      { ingest_version: INGEST_VERSION },
+    );
+    const early = records.find((r) => r.source_uri.includes("<early@host>"));
+    const late = records.find((r) => r.source_uri.includes("<late@host>"));
+    // Both records are still emitted (cluster membership is recorded, not dropped).
+    expect(records).toHaveLength(2);
+    expect(early?.is_canonical).toBe(true);
+    expect(late?.is_canonical).toBe(false);
+    // The non-canonical points at the canonical's cluster.
+    expect(late?.dedup_cluster_id).toBe(early?.id);
+    expect(early?.dedup_cluster_id).toBe(early?.id);
+  });
+});
+
+describe("runPipeline — matrix medium end-to-end (§3, §6)", () => {
+  test("a matrix unit emits a schema-valid record with medium matrix", () => {
+    const [r] = runPipeline([matrixUnit()], { ingest_version: INGEST_VERSION });
+    expect(r?.medium).toBe("matrix");
+    expect(() => CorpusRecordSchema.parse(r)).not.toThrow();
+  });
+
+  test("matrix reply-fallback boundaries are stripped inside the pipeline", () => {
+    const raw = "> <@alice:server.org> what time works?\n\nafter 3pm is good for me";
+    const [r] = runPipeline([matrixUnit({ raw_text: raw })], { ingest_version: INGEST_VERSION });
+    expect(r?.text_clean).toBe("after 3pm is good for me");
+    expect(r?.text_clean).not.toContain("alice");
+  });
+});
+
+describe("runPipeline — register classification (§3, §8)", () => {
+  test("a matrix unit defaults to the chat register", () => {
+    const [r] = runPipeline([matrixUnit()], { ingest_version: INGEST_VERSION });
+    expect(r?.register).toBe("chat");
+  });
+
+  test("an ordinary email unit defaults to the email register", () => {
     const [r] = runPipeline([rawUnit()], { ingest_version: INGEST_VERSION });
     expect(r?.register).toBe("email");
+  });
+
+  test("a terse one-line email is classified as chat", () => {
+    const [r] = runPipeline([rawUnit({ raw_text: "sounds good, see you then" })], {
+      ingest_version: INGEST_VERSION,
+    });
+    expect(r?.register).toBe("chat");
+  });
+
+  test("a long structured matrix message is classified as longform", () => {
+    const longBody = Array.from(
+      { length: 60 },
+      (_, i) => `sentence number ${i} carrying some actual substance about the topic`,
+    ).join(" ");
+    const [r] = runPipeline([matrixUnit({ raw_text: longBody })], {
+      ingest_version: INGEST_VERSION,
+    });
+    expect(r?.register).toBe("longform");
   });
 });
 
