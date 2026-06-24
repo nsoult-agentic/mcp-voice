@@ -1,5 +1,5 @@
 /**
- * Exemplar store — tier-1 write path + read-back (spec 02 §3, §7).
+ * Exemplar store — tier-1 write path, read-back, and retrieval (spec 02 §3, §7, §8).
  *
  * Persists `CorpusRecord`s into `voice.exemplars`, keyed on the record's stable
  * `id` so re-ingesting unchanged content is a no-op (idempotent, §10.1). Both
@@ -7,13 +7,15 @@
  * `is_canonical` rows are embedded (they're the only ones served, §6); dedup
  * losers are still stored for provenance but carry NULL embeddings.
  *
- * Retrieval (register-filtered, style-ranked) is a later slice; this slice
- * provides the write path and id-keyed read-back the round-trip/isolation
- * acceptance criteria need.
+ * `retrieve` is the generation-time primitive (§8): a HARD register pre-filter
+ * (never crosses registers), style-primary RRF over style- and optional content-
+ * cosine, always `is_canonical`. The register literal drives pgvector's per-
+ * register partial HNSW indexes (§6).
  */
 import type { CorpusRecord, Medium, Register } from "./corpus-record";
 import type { Sql } from "./db";
 import type { Embedders } from "./embedder";
+import { fuseRRF, type RankedList } from "./rrf";
 import { CONTENT_DIM, parseVectorLiteral, STYLE_DIM, toVectorLiteral } from "./vector";
 
 export interface Exemplar {
@@ -35,11 +37,25 @@ export interface Exemplar {
   profile_version: string | null;
 }
 
+export interface RetrieveOptions {
+  author_id: string;
+  /** HARD pre-filter — retrieval never crosses registers (§8). */
+  register: Register;
+  /** Text whose STYLE vector seeds ranking (the primary axis). */
+  styleSeed?: string;
+  /** Optional text for topical grounding (content axis, fused under style). */
+  queryText?: string;
+  /** Number of exemplars to return (3–10 per research; default 5). */
+  k?: number;
+}
+
 export interface ExemplarStore {
   /** Upsert records; returns the count of newly inserted rows (existing ids are no-ops). */
   upsert(records: CorpusRecord[]): Promise<number>;
   getById(id: string): Promise<Exemplar | null>;
   getByIds(ids: string[]): Promise<Exemplar[]>;
+  /** Register-scoped, style-primary RRF retrieval of canonical exemplars (§8). */
+  retrieve(options: RetrieveOptions): Promise<Exemplar[]>;
 }
 
 export interface ExemplarStoreDeps {
@@ -47,12 +63,39 @@ export interface ExemplarStoreDeps {
   embedders: Embedders;
 }
 
-/** The columns selected for read-back, with vectors cast to their text literal form. */
+const DEFAULT_K = 5;
+/** Candidate pool per axis before fusion — over-fetch so fusion has room to work. */
+const CANDIDATE_POOL_FACTOR = 4;
+/** RRF weights: style is primary over content (§8, research §3 Area 5). */
+const STYLE_WEIGHT = 2;
+const CONTENT_WEIGHT = 1;
+
+const VALID_REGISTERS = new Set<Register>(["chat", "email", "longform"]);
+
+/**
+ * Validate a register against the closed enum and return it as a safe SQL literal.
+ * Retrieval interpolates the register as a literal (not a bound param) so the
+ * planner can match the per-register partial HNSW index (§6) — this guard ensures
+ * only an allow-listed value is ever interpolated.
+ */
+function registerLiteral(register: Register): string {
+  if (!VALID_REGISTERS.has(register)) {
+    throw new Error(`Unknown register: ${register}`);
+  }
+  return register;
+}
+
+/**
+ * The columns selected for read-back. Vectors are cast to their text literal form
+ * under DISTINCT alias names so they don't shadow the real vector columns — a
+ * retrieval `ORDER BY style_embedding <=> ?` must bind the vector column, not the
+ * text cast. (Keep in sync with `toExemplar`.)
+ */
 const SELECT_COLUMNS = `
   id, author_id, register, medium, source_uri, thread_id,
   authored_at, ingested_at, text, word_count, dedup_cluster_id, is_canonical,
-  content_embedding::text AS content_embedding,
-  style_embedding::text AS style_embedding,
+  content_embedding::text AS content_embedding_text,
+  style_embedding::text AS style_embedding_text,
   ingest_version, profile_version`;
 
 /** Map a raw DB row to an Exemplar (timestamps → ISO, vectors → number[] | null). */
@@ -70,11 +113,83 @@ function toExemplar(row: Record<string, unknown>): Exemplar {
     word_count: row["word_count"] as number,
     dedup_cluster_id: row["dedup_cluster_id"] as string,
     is_canonical: row["is_canonical"] as boolean,
-    content_embedding: parseVectorLiteral(row["content_embedding"]),
-    style_embedding: parseVectorLiteral(row["style_embedding"]),
+    content_embedding: parseVectorLiteral(row["content_embedding_text"]),
+    style_embedding: parseVectorLiteral(row["style_embedding_text"]),
     ingest_version: row["ingest_version"] as string,
     profile_version: (row["profile_version"] as string | null) ?? null,
   };
+}
+
+/**
+ * One ANN candidate query on `column`, register-scoped. `reg` is interpolated as a
+ * validated literal so the planner can use the per-register partial HNSW index
+ * (§6); the embedding column is ORDER BY'd unqualified — it binds the vector
+ * column, not the `*_text` read alias.
+ */
+async function annCandidates(
+  sql: Sql,
+  reg: string,
+  column: "style_embedding" | "content_embedding",
+  queryVector: string,
+  authorId: string,
+  limit: number,
+): Promise<Exemplar[]> {
+  const rows = await sql.unsafe<Record<string, unknown>[]>(
+    `SELECT ${SELECT_COLUMNS}
+       FROM voice.exemplars
+       WHERE register = '${reg}' AND is_canonical AND author_id = $2
+         AND ${column} IS NOT NULL
+       ORDER BY ${column} <=> $1::vector
+       LIMIT $3`,
+    [queryVector, authorId, limit],
+  );
+  return rows.map(toExemplar);
+}
+
+/** Recency fallback when no style/content seed is given (§8). */
+async function recencyCandidates(
+  sql: Sql,
+  reg: string,
+  authorId: string,
+  limit: number,
+): Promise<Exemplar[]> {
+  const rows = await sql.unsafe<Record<string, unknown>[]>(
+    `SELECT ${SELECT_COLUMNS}
+       FROM voice.exemplars
+       WHERE register = '${reg}' AND is_canonical AND author_id = $1
+       ORDER BY authored_at DESC
+       LIMIT $2`,
+    [authorId, limit],
+  );
+  return rows.map(toExemplar);
+}
+
+/** Index candidate rows by id and record their ranked id list + weight for fusion. */
+function collectInto(
+  rows: Exemplar[],
+  weight: number,
+  byId: Map<string, Exemplar>,
+  lists: RankedList[],
+): void {
+  for (const row of rows) {
+    byId.set(row.id, row);
+  }
+  lists.push({ ids: rows.map((row) => row.id), weight });
+}
+
+/** Take the first k fused ids that resolve to a candidate row, in fused order. */
+function pickTopK(ordered: string[], byId: Map<string, Exemplar>, k: number): Exemplar[] {
+  const result: Exemplar[] = [];
+  for (const id of ordered) {
+    const row = byId.get(id);
+    if (row !== undefined) {
+      result.push(row);
+      if (result.length === k) {
+        break;
+      }
+    }
+  }
+  return result;
 }
 
 /** Computed embeddings for one record (null when the record is not canonical). */
@@ -176,6 +291,43 @@ export function createExemplarStore(deps: ExemplarStoreDeps): ExemplarStore {
         [sql.array(ids)],
       );
       return rows.map(toExemplar);
+    },
+
+    async retrieve(options: RetrieveOptions): Promise<Exemplar[]> {
+      const { author_id, styleSeed, queryText } = options;
+      const k = options.k ?? DEFAULT_K;
+      const reg = registerLiteral(options.register); // validated → safe literal
+      const pool = Math.max(k * CANDIDATE_POOL_FACTOR, k);
+
+      const byId = new Map<string, Exemplar>();
+      const lists: RankedList[] = [];
+
+      if (styleSeed !== undefined) {
+        const vec = toVectorLiteral(await embedders.style.embed(styleSeed), STYLE_DIM);
+        collectInto(
+          await annCandidates(sql, reg, "style_embedding", vec, author_id, pool),
+          STYLE_WEIGHT,
+          byId,
+          lists,
+        );
+      }
+
+      if (queryText !== undefined) {
+        const vec = toVectorLiteral(await embedders.content.embed(queryText), CONTENT_DIM);
+        collectInto(
+          await annCandidates(sql, reg, "content_embedding", vec, author_id, pool),
+          CONTENT_WEIGHT,
+          byId,
+          lists,
+        );
+      }
+
+      // No seed → recency fallback (most recently authored canonical rows).
+      if (lists.length === 0) {
+        return recencyCandidates(sql, reg, author_id, k);
+      }
+
+      return pickTopK(fuseRRF(lists), byId, k);
     },
   };
 }
