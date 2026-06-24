@@ -12,7 +12,7 @@
  * cosine, always `is_canonical`. The register literal drives pgvector's per-
  * register partial HNSW indexes (§6).
  */
-import type { CorpusRecord, Medium, Register } from "./corpus-record";
+import { type CorpusRecord, type Medium, type Register, REGISTERS } from "./corpus-record";
 import type { Sql } from "./db";
 import type { Embedders } from "./embedder";
 import { fuseRRF, type RankedList } from "./rrf";
@@ -70,7 +70,7 @@ const CANDIDATE_POOL_FACTOR = 4;
 const STYLE_WEIGHT = 2;
 const CONTENT_WEIGHT = 1;
 
-const VALID_REGISTERS = new Set<Register>(["chat", "email", "longform"]);
+const VALID_REGISTERS = new Set<Register>(REGISTERS);
 
 /**
  * Validate a register against the closed enum and return it as a safe SQL literal.

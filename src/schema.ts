@@ -8,11 +8,9 @@
  * in a later slice. Embedding dimensions come from `vector.ts` so the schema and
  * the validation can never drift apart.
  */
+import { REGISTERS } from "./corpus-record";
 import type { Sql } from "./db";
 import { CONTENT_DIM, STYLE_DIM } from "./vector";
-
-/** The register enum labels — also the partition keys for the partial indexes. */
-const REGISTERS = ["chat", "email", "longform"] as const;
 
 /**
  * Per-register partial HNSW indexes on each embedding column (§6). `register` is a

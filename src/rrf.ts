@@ -2,8 +2,9 @@
  * Reciprocal Rank Fusion (spec 02 §8).
  *
  * Fuses one or more ranked id lists into a single ranking. Each list contributes
- * `weight / (rrfK + rank)` to an id's score (rank 1-based); scores sum across
- * lists. The retrieval primitive fuses a style-ranked and an (optional) content-
+ * `weight / (rrfK + rank)` to an id's score, where rank is 1-based (the loop index
+ * is 0-based, hence the `+ 1`); scores sum across lists. The retrieval primitive
+ * fuses a style-ranked and an (optional) content-
  * ranked list with style weighted PRIMARY, so a stylistically-close exemplar
  * outranks a merely topically-close one (research §3 Area 5).
  *
