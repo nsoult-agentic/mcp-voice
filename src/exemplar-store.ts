@@ -123,13 +123,17 @@ export function createExemplarStore(deps: ExemplarStoreDeps): ExemplarStore {
 
       const embeddings = await Promise.all(fresh.map((record) => embedCanonical(record)));
 
+      // Count rows ACTUALLY inserted via RETURNING — `ON CONFLICT DO NOTHING`
+      // means a concurrent writer could have inserted the id between our SELECT
+      // and this INSERT, so the SELECT snapshot would over-report.
+      let inserted = 0;
       await sql.begin(async (tx) => {
         for (let i = 0; i < fresh.length; i += 1) {
           const record = fresh[i] as CorpusRecord;
           const pair = embeddings[i] as EmbeddingPair;
           const content = pair.content === null ? null : tx`${pair.content}::vector`;
           const style = pair.style === null ? null : tx`${pair.style}::vector`;
-          await tx`
+          const rows = await tx`
             INSERT INTO voice.exemplars (
               id, author_id, register, medium, source_uri, thread_id,
               authored_at, text, word_count, dedup_cluster_id, is_canonical,
@@ -141,11 +145,13 @@ export function createExemplarStore(deps: ExemplarStoreDeps): ExemplarStore {
               ${record.dedup_cluster_id}, ${record.is_canonical},
               ${content}, ${style}, ${record.ingest_version}
             )
-            ON CONFLICT (id) DO NOTHING`;
+            ON CONFLICT (id) DO NOTHING
+            RETURNING id`;
+          inserted += rows.length;
         }
       });
 
-      return fresh.length;
+      return inserted;
     },
 
     async getById(id: string): Promise<Exemplar | null> {
@@ -161,9 +167,13 @@ export function createExemplarStore(deps: ExemplarStoreDeps): ExemplarStore {
       if (ids.length === 0) {
         return [];
       }
+      // Bind ids as a proper Postgres array. A bare string[] would be serialized
+      // by porsager as a comma-joined scalar ("a,b,c") and rejected as a malformed
+      // array literal; `sql.array` tags it with the array type so it serializes as
+      // `{a,b,c}`.
       const rows = await sql.unsafe<Record<string, unknown>[]>(
         `SELECT ${SELECT_COLUMNS} FROM voice.exemplars WHERE id = ANY($1::text[])`,
-        [ids],
+        [sql.array(ids)],
       );
       return rows.map(toExemplar);
     },
