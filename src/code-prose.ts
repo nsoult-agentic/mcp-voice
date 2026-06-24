@@ -2,9 +2,14 @@
  * Code/prose split (spec §5 step 4, §2).
  *
  * Embedded code is not natural-language voice, so it is excluded from the prose
- * corpus. v1 removes FENCED code blocks (lines delimited by ``` , optionally with
- * a language tag); inline `code` spans are kept, because removing them mid-
+ * corpus. v1 removes FENCED code blocks (lines delimited by ``` or ~~~, optionally
+ * with a language tag); inline `code` spans are kept, because removing them mid-
  * sentence would damage the surrounding voice and grammar.
+ *
+ * LIMITATION (known, non-blocking): stripCode runs before normalization, so a
+ * fence line prefixed by a control char (e.g. U+0007) won't match (\s excludes
+ * C0 controls) and that block would leak as prose. Pathological input; revisit
+ * only if it appears in practice.
  *
  * PRESERVE (§8): a message with no fence is returned byte-identical. When a fence
  * IS removed, the gap it leaves is tidied — leading/trailing blank lines are
@@ -14,8 +19,8 @@
  * drops it, as it carries no voice).
  */
 
-/** A fence line: ``` optionally followed by a language tag, possibly indented. */
-const FENCE_RE = /^\s*```/;
+/** A fence line: ``` or ~~~ optionally followed by a language tag, possibly indented. */
+const FENCE_RE = /^\s*(```|~~~)/;
 
 /**
  * Collapse the whitespace left behind by removed code: drop leading/trailing

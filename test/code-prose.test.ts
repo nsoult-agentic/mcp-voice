@@ -48,4 +48,9 @@ describe("stripCode — fenced-block removal (§5 step 4)", () => {
     const body = "see below\n```\nhalf a block with no close";
     expect(stripCode(body)).toBe("see below");
   });
+
+  test("a tilde-delimited (~~~) fence is also removed", () => {
+    const body = "config:\n~~~yaml\nkey: value\n~~~\nthat's it";
+    expect(stripCode(body)).toBe("config:\nthat's it");
+  });
 });
