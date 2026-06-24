@@ -99,6 +99,44 @@ describe("createEmailAdapter — own-authorship filtering (§6)", () => {
   });
 });
 
+describe("createEmailAdapter — robust own-address match (§6 guardrail)", () => {
+  test("From with a display name + different case still matches the operator", async () => {
+    const headerCased = {
+      message_id: "<m5@host>",
+      folder: "Sent",
+      // Display name + bracketed address, with the local part upper-cased.
+      from: '"Nico" <Nico@Example.com>',
+      date: "2026-06-01T10:00:00.000Z",
+      thread_id: "t3",
+      body: "Shipping it now.",
+    };
+    const adapter = createEmailAdapter({
+      source: makeSource([headerCased]),
+      operator: OPERATOR_CONFIG,
+    });
+    const units = await adapter.pull();
+    expect(units).toHaveLength(1);
+    expect(units[0]?.source_uri).toContain("<m5@host>");
+  });
+
+  test("a genuinely different address is still dropped", async () => {
+    const otherSent = {
+      message_id: "<m6@host>",
+      folder: "Sent",
+      from: '"Someone" <someone@elsewhere.com>',
+      date: "2026-06-01T10:00:00.000Z",
+      thread_id: "t4",
+      body: "Not the operator.",
+    };
+    const adapter = createEmailAdapter({
+      source: makeSource([otherSent]),
+      operator: OPERATOR_CONFIG,
+    });
+    const units = await adapter.pull();
+    expect(units).toHaveLength(0);
+  });
+});
+
 describe("createEmailAdapter — RawUnit shape (medium + provenance, §5 step 1)", () => {
   test("each unit is tagged medium=email with provenance and timestamp", async () => {
     const adapter = createEmailAdapter({

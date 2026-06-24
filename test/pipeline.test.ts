@@ -18,7 +18,7 @@ function rawUnit(overrides: Record<string, unknown> = {}) {
     thread_id: "t1",
     timestamp: "2026-06-01T09:00:00.000Z",
     raw_text: [
-      "Yeah, I'll have them over to you tonight — I'm on it! 🙂",
+      "Yeah, I'll have them over to you tonight — I'm on it! \u{1F642}",
       "",
       "On Tuesday, John wrote:",
       "> Can you get me the Q3 numbers before the board call?",
@@ -41,7 +41,7 @@ describe("runPipeline — emits valid CorpusRecords (§4, §5)", () => {
 
   test("boundary stripping runs inside the pipeline (third-party words gone)", () => {
     const [r] = runPipeline([rawUnit()], { ingest_version: INGEST_VERSION });
-    expect(r?.text_clean).toBe("Yeah, I'll have them over to you tonight — I'm on it! 🙂");
+    expect(r?.text_clean).toBe("Yeah, I'll have them over to you tonight — I'm on it! \u{1F642}");
     expect(r?.text_clean).not.toContain("Q3 numbers");
     expect(r?.text_clean).not.toContain("John");
     expect(r?.text_clean).not.toContain("sent from my phone");
@@ -50,7 +50,7 @@ describe("runPipeline — emits valid CorpusRecords (§4, §5)", () => {
   test("text_clean preserves voice tokens byte-identical (PRESERVE, §8)", () => {
     const [r] = runPipeline([rawUnit()], { ingest_version: INGEST_VERSION });
     expect(r?.text_clean).toContain("—");
-    expect(r?.text_clean).toContain("🙂");
+    expect(r?.text_clean).toContain("\u{1F642}");
     expect(r?.text_clean).toContain("I'll");
   });
 
@@ -112,6 +112,47 @@ describe("runPipeline — idempotency (§5, §10.3)", () => {
     const xFromA = a.find((r) => r.source_uri.includes("<x@host>"));
     const xFromB = b.find((r) => r.source_uri.includes("<x@host>"));
     expect(xFromB?.id).toBe(xFromA?.id);
+  });
+});
+
+describe("runPipeline — NORMALIZE-only applied to text_clean (§8)", () => {
+  test("end-to-end: NFC-precomposes and strips control chars, voice tokens survive", () => {
+    // Build the operator text from explicit code points so the test is exact:
+    //   - decomposed "é" = "e" + U+0301 COMBINING ACUTE ACCENT
+    //   - a stray control char U+0007 (BEL)
+    //   - voice tokens: em-dash (U+2014), emoji (U+1F642), and a contraction.
+    const combiningAcute = "́";
+    const controlChar = "";
+    const raw = `Cafe${combiningAcute} — I'll${controlChar} send it \u{1F642}`;
+    const [r] = runPipeline([rawUnit({ raw_text: raw })], { ingest_version: INGEST_VERSION });
+    const clean = r?.text_clean ?? "";
+    // NFC: precomposed "é" (U+00E9) present; the standalone combining mark is gone.
+    expect(clean).toContain("é");
+    expect(clean).not.toContain(combiningAcute);
+    // Control char removed.
+    expect(clean).not.toContain(controlChar);
+    // PRESERVE: em-dash, emoji, contraction byte-identical.
+    expect(clean).toContain("—");
+    expect(clean).toContain("\u{1F642}");
+    expect(clean).toContain("I'll");
+    expect(clean).toBe("Café — I'll send it \u{1F642}");
+  });
+});
+
+describe("runPipeline — schema validation at emit (fail-fast)", () => {
+  test("valid units pass through unchanged (schema-valid record)", () => {
+    const records = runPipeline([rawUnit()], { ingest_version: INGEST_VERSION });
+    expect(records).toHaveLength(1);
+    expect(() => CorpusRecordSchema.parse(records[0])).not.toThrow();
+  });
+
+  test("a unit yielding an invalid record throws naming the source_uri", () => {
+    // A non-ISO/empty timestamp produces a schema-invalid record. Construct the
+    // bad unit at the RawUnit boundary; runPipeline must fail-fast, not drop it.
+    const bad = rawUnit({ source_uri: "message-id:<bad@host>", timestamp: "not-a-timestamp" });
+    expect(() => runPipeline([bad], { ingest_version: INGEST_VERSION })).toThrow(
+      /message-id:<bad@host>/,
+    );
   });
 });
 

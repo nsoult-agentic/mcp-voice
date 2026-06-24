@@ -18,11 +18,12 @@
 import {
   computeId,
   type CorpusRecord,
+  CorpusRecordSchema,
   MEDIUM_REGISTER_DEFAULT,
   type Medium,
   type Register,
 } from "./corpus-record";
-import { stripBoundaries } from "./boundary";
+import { normalizeSafe, stripBoundaries } from "./boundary";
 import type { RawUnit } from "./adapters/email";
 
 export interface PipelineOptions {
@@ -46,16 +47,34 @@ function classifyRegister(medium: Medium): Register {
   return MEDIUM_REGISTER_DEFAULT[medium];
 }
 
+/**
+ * Validate a constructed record through the canonical schema (§4) before it can
+ * leave the pipeline. A schema-invalid record means the adapter contract was
+ * violated (e.g. a non-ISO timestamp); fail fast and name the offending source,
+ * rather than silently dropping or emitting a malformed record.
+ */
+function assertValidRecord(record: CorpusRecord): CorpusRecord {
+  const result = CorpusRecordSchema.safeParse(record);
+  if (!result.success) {
+    throw new Error(
+      `Invalid CorpusRecord for source_uri ${record.source_uri}: ${result.error.message}`,
+    );
+  }
+  return result.data;
+}
+
 /** Transform one raw unit into a canonical record (single-unit pure stage). */
 function toRecord(unit: RawUnit, options: PipelineOptions): CorpusRecord {
-  const textClean = stripBoundaries(unit.raw_text);
+  // Boundary strip (drop others' words) then NORMALIZE-only (NFC + control-char
+  // removal, §8). PRESERVE holds: voice tokens stay byte-identical.
+  const textClean = normalizeSafe(stripBoundaries(unit.raw_text));
   const id = computeId({
     author_id: unit.author_id,
     medium: unit.medium,
     source_uri: unit.source_uri,
     content: textClean,
   });
-  return {
+  const record: CorpusRecord = {
     id,
     author_id: unit.author_id,
     medium: unit.medium,
@@ -70,6 +89,7 @@ function toRecord(unit: RawUnit, options: PipelineOptions): CorpusRecord {
     is_canonical: true,
     ingest_version: options.ingest_version,
   };
+  return assertValidRecord(record);
 }
 
 /**

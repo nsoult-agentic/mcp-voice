@@ -58,9 +58,22 @@ function readString(message: Record<string, unknown>, key: string): string | und
 }
 
 /**
+ * Reduce a From header to a bare, case-folded address for comparison. Handles a
+ * full header form like `"Nico" <nico@example.com>` by extracting the bracketed
+ * address; a bare address is returned as-is. Lower-cased so the match is
+ * case-insensitive without mutating the address stamped onto the unit.
+ */
+function normalizeAddress(raw: string): string {
+  const bracketed = raw.match(/<([^>]+)>/);
+  const address = bracketed?.[1] ?? raw;
+  return address.trim().toLowerCase();
+}
+
+/**
  * The own-authorship predicate (§6): From ∈ operator addresses AND folder is
- * "Sent". Returns the matched operator address so the caller can stamp it onto
- * the unit without re-deriving it.
+ * "Sent". The address match is case-insensitive and tolerates a display-name
+ * header form. Returns the matched operator address so the caller can stamp it
+ * onto the unit without re-deriving it.
  */
 function operatorAddressOf(
   message: Record<string, unknown>,
@@ -71,10 +84,11 @@ function operatorAddressOf(
     return undefined;
   }
   const from = readString(message, "from");
-  if (from === undefined || !operator.addresses.includes(from)) {
+  if (from === undefined) {
     return undefined;
   }
-  return from;
+  const fromAddress = normalizeAddress(from);
+  return operator.addresses.find((address) => address.toLowerCase() === fromAddress);
 }
 
 /** Build a RawUnit from an own-authored message. Provenance + medium attached. */
