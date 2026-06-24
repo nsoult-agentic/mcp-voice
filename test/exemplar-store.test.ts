@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import type { CorpusRecord } from "../src/corpus-record.ts";
-import { close, getDb } from "../src/db.ts";
 import type { Embedder } from "../src/embedder.ts";
 import { createExemplarStore, type ExemplarStore } from "../src/exemplar-store.ts";
 import { applyMigrations } from "../src/schema.ts";
 import { CONTENT_DIM, STYLE_DIM } from "../src/vector.ts";
+import { testDb } from "./support/pg.ts";
 
 // Exemplar store write path + round-trip (spec 02 §7, §10.1-2). INTEGRATION:
 // needs a real Postgres + pgvector. Runs in CI (RUN_DB_TESTS=1, pgvector service)
@@ -51,10 +51,10 @@ function record(over: Partial<CorpusRecord> = {}): CorpusRecord {
 
 describe.skipIf(!RUN_DB)("exemplar store (integration, pgvector)", () => {
   let store: ExemplarStore;
-  let sql: ReturnType<typeof getDb>;
+  let sql: ReturnType<typeof testDb>;
 
   beforeAll(async () => {
-    sql = getDb();
+    sql = testDb();
     await applyMigrations(sql);
     store = createExemplarStore({ sql, embedders });
   });
@@ -64,7 +64,7 @@ describe.skipIf(!RUN_DB)("exemplar store (integration, pgvector)", () => {
   });
 
   afterAll(async () => {
-    await close();
+    await sql.end();
   });
 
   test("round-trip: a record writes and reads back identically (§10.1)", async () => {

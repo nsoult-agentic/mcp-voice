@@ -55,4 +55,6 @@ jobs:
         run: bunx tsc --noEmit
 
       - name: Run tests
-        run: bun test
+        # Hard wall-clock cap so a hang fails fast (with partial output) instead of
+        # burning the job's full timeout. Integration tests run in seconds.
+        run: timeout 300 bun test

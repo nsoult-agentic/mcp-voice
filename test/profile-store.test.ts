@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-import { close, getDb } from "../src/db.ts";
 import { createProfileStore, type ProfileInput, type ProfileStore } from "../src/profile-store.ts";
 import { applyMigrations } from "../src/schema.ts";
 import { STYLE_DIM } from "../src/vector.ts";
+import { testDb } from "./support/pg.ts";
 
 // Profiles tier-2 (spec 02 §3, §4, §7.3, §9, acceptance §10.6). INTEGRATION:
 // real Postgres + pgvector — runs in CI (RUN_DB_TESTS=1), skips locally. Profiles
@@ -27,7 +27,7 @@ function profile(over: Partial<ProfileInput> = {}): ProfileInput {
 }
 
 async function activeCount(
-  sql: ReturnType<typeof getDb>,
+  sql: ReturnType<typeof testDb>,
   author_id: string,
   register: string,
 ): Promise<number> {
@@ -39,10 +39,10 @@ async function activeCount(
 
 describe.skipIf(!RUN_DB)("profile store (integration, pgvector)", () => {
   let store: ProfileStore;
-  let sql: ReturnType<typeof getDb>;
+  let sql: ReturnType<typeof testDb>;
 
   beforeAll(async () => {
-    sql = getDb();
+    sql = testDb();
     await applyMigrations(sql);
     store = createProfileStore({ sql });
   });
@@ -52,7 +52,7 @@ describe.skipIf(!RUN_DB)("profile store (integration, pgvector)", () => {
   });
 
   afterAll(async () => {
-    await close();
+    await sql.end();
   });
 
   test("round-trip: a profile writes and reads back (jsonb + centroid)", async () => {

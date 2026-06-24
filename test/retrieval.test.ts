@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import type { CorpusRecord, Register } from "../src/corpus-record.ts";
-import { close, getDb } from "../src/db.ts";
 import type { Embedder } from "../src/embedder.ts";
 import { createExemplarStore, type ExemplarStore } from "../src/exemplar-store.ts";
 import { applyMigrations } from "../src/schema.ts";
 import { CONTENT_DIM, STYLE_DIM } from "../src/vector.ts";
+import { testDb } from "./support/pg.ts";
 
 // Retrieval primitive (spec 02 §8, acceptance §10.3/§10.4/§10.5). INTEGRATION:
 // real Postgres + pgvector — runs in CI (RUN_DB_TESTS=1), skips locally. Uses a
@@ -88,10 +88,10 @@ function record(over: Partial<CorpusRecord> & { id: string; text_clean: string }
 
 describe.skipIf(!RUN_DB)("retrieve (integration, pgvector)", () => {
   let store: ExemplarStore;
-  let sql: ReturnType<typeof getDb>;
+  let sql: ReturnType<typeof testDb>;
 
   beforeAll(async () => {
-    sql = getDb();
+    sql = testDb();
     await applyMigrations(sql);
     store = createExemplarStore({ sql, embedders });
   });
@@ -103,7 +103,7 @@ describe.skipIf(!RUN_DB)("retrieve (integration, pgvector)", () => {
   });
 
   afterAll(async () => {
-    await close();
+    await sql.end();
   });
 
   test("register is a HARD pre-filter — never returns another register's row (§10.3)", async () => {
