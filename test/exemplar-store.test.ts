@@ -125,11 +125,18 @@ describe.skipIf(!RUN_DB)("exemplar store (integration, pgvector)", () => {
   });
 
   test("exemplars live in the isolated voice schema, not public (§9 isolation)", async () => {
-    const inVoice = await sql<{ reg: string | null }[]>`
-      SELECT to_regclass('voice.exemplars')::text AS reg`;
+    // Assert the schema via the catalog (regclass::text drops the prefix when the
+    // schema is on search_path, which it is here since the DB user is `voice`).
+    const schema = await sql<{ nspname: string }[]>`
+      SELECT n.nspname
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.oid = to_regclass('voice.exemplars')`;
+    expect(schema[0]?.nspname).toBe("voice");
+
+    // And there is no exemplars table in public (knowledge-table territory).
     const inPublic = await sql<{ reg: string | null }[]>`
       SELECT to_regclass('public.exemplars')::text AS reg`;
-    expect(inVoice[0]?.reg).toBe("voice.exemplars");
     expect(inPublic[0]?.reg).toBeNull();
   });
 });
