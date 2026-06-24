@@ -17,6 +17,8 @@ export type Medium = z.infer<typeof MediumSchema>;
 /** Register taxonomy (D1): chat | email | longform. */
 const RegisterSchema = z.enum(["chat", "email", "longform"]);
 export type Register = z.infer<typeof RegisterSchema>;
+/** The register labels as a runtime array (single source of truth; derived from the enum). */
+export const REGISTERS = RegisterSchema.options;
 
 /**
  * Default medium→register map (§3): the register a unit takes absent a strong
