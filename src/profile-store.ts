@@ -38,7 +38,12 @@ export interface Profile extends ProfileInput {
 export interface ProfileStore {
   /** Insert a new (inactive) immutable version; re-writing the same version is a no-op. */
   writeProfile(input: ProfileInput): Promise<void>;
-  /** Atomically make `version` the single active profile for (author_id, register). */
+  /**
+   * Atomically make `version` the single active profile for (author_id, register).
+   * Not internally serialized: callers should not race concurrent activations of
+   * different versions for the same (author_id, register) — the partial unique
+   * index is the backstop (one racer errors; the one-active invariant always holds).
+   */
   activateProfile(author_id: string, register: Register, version: string): Promise<void>;
   /** The currently active profile for (author_id, register), or null. */
   getActiveProfile(author_id: string, register: Register): Promise<Profile | null>;
