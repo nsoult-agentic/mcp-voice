@@ -165,6 +165,35 @@ describe("runPipeline — register classification (§3, §8)", () => {
   });
 });
 
+describe("runPipeline — code/prose split + empty-prose drop (§5 step 4)", () => {
+  test("a fenced code block is stripped from text_clean inside the pipeline", () => {
+    const raw = "here's the patch:\n\n```ts\nconst x = 1;\n```\n\nshould do it";
+    const [r] = runPipeline([matrixUnit({ raw_text: raw })], { ingest_version: INGEST_VERSION });
+    expect(r?.text_clean).toBe("here's the patch:\n\nshould do it");
+    expect(r?.text_clean).not.toContain("const x");
+  });
+
+  test("a unit that is all code (empty prose) is dropped, not emitted", () => {
+    const records = runPipeline(
+      [
+        matrixUnit({ source_uri: "matrix-event:$code", raw_text: "```\nrm -rf /tmp/x\n```" }),
+        matrixUnit({ source_uri: "matrix-event:$prose", raw_text: "real words here please" }),
+      ],
+      { ingest_version: INGEST_VERSION },
+    );
+    expect(records).toHaveLength(1);
+    expect(records[0]?.source_uri).toBe("matrix-event:$prose");
+  });
+
+  test("a matrix unit that is only a quoted reply (empty after strip) is dropped", () => {
+    const records = runPipeline(
+      [matrixUnit({ raw_text: "> <@alice:server.org> nothing from me to add" })],
+      { ingest_version: INGEST_VERSION },
+    );
+    expect(records).toHaveLength(0);
+  });
+});
+
 describe("runPipeline — idempotency (§5, §10.3)", () => {
   test("running twice over the same input yields identical ids", () => {
     const first = runPipeline([rawUnit()], { ingest_version: INGEST_VERSION });

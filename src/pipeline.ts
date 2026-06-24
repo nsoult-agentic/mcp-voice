@@ -4,13 +4,17 @@
  * Ordered, pure, idempotent stages turning own-authored `RawUnit`s into
  * canonical `CorpusRecord`s:
  *
- *   boundary strip → word count → dedup → register classification → emit
+ *   boundary strip → code/prose split → word count → dedup
+ *     → register classification → emit
  *
  * Boundary stripping is medium-dispatched (email keeps the lead and drops from
- * the first quote/signature; matrix drops the leading reply-fallback block).
- * Dedup is MinHash/LSH near-duplicate clustering (keep-earliest); register is a
- * default-plus-strong-signal content classifier. Own-authorship filtering
- * already happened in the adapter, so every input here is the operator's text.
+ * the first quote/signature; matrix drops the leading reply-fallback block). The
+ * code/prose split removes fenced code (not voice); a unit left with empty prose
+ * (all code, or all quote) is dropped — it carries no voice. Dedup is MinHash/LSH
+ * near-duplicate clustering (keep-earliest); register is a default-plus-strong-
+ * signal content classifier. Own-authorship filtering already happened in the
+ * adapter, so every input here is the operator's text. Per-register volume
+ * accounting + readiness tiers are a separate derived view (see `accounting.ts`).
  *
  * Idempotency (§5, §10.3): a record's `id` is a content+provenance hash, so the
  * same unit always yields the same id regardless of run or batch order, and
@@ -18,6 +22,7 @@
  */
 import { computeId, type CorpusRecord, CorpusRecordSchema, type Medium } from "./corpus-record";
 import { normalizeSafe, stripBoundaries, stripMatrixBoundaries } from "./boundary";
+import { stripCode } from "./code-prose";
 import { dedup } from "./dedup";
 import { classifyRegister } from "./register";
 import type { RawUnit } from "./adapters/raw-unit";
@@ -65,9 +70,10 @@ function assertValidRecord(record: CorpusRecord): CorpusRecord {
  * batch-level dedup pass in `runPipeline` then rewrites them for near-duplicates.
  */
 function toRecord(unit: RawUnit, options: PipelineOptions): CorpusRecord {
-  // Boundary strip (drop others' words) then NORMALIZE-only (NFC + control-char
-  // removal, §8). PRESERVE holds: voice tokens stay byte-identical.
-  const textClean = normalizeSafe(stripFor(unit.medium, unit.raw_text));
+  // Boundary strip (drop others' words) → code/prose split (drop fenced code) →
+  // NORMALIZE-only (NFC + control-char removal, §8). PRESERVE holds: voice tokens
+  // stay byte-identical.
+  const textClean = normalizeSafe(stripCode(stripFor(unit.medium, unit.raw_text)));
   const id = computeId({
     author_id: unit.author_id,
     medium: unit.medium,
@@ -100,11 +106,15 @@ function toRecord(unit: RawUnit, options: PipelineOptions): CorpusRecord {
  * is `is_canonical`, and all members share its `dedup_cluster_id` (§8, D4).
  */
 export function runPipeline(units: RawUnit[], options: PipelineOptions): CorpusRecord[] {
-  // 1. Build + validate base records, collapsing exact-id duplicates (idempotency).
+  // 1. Build + validate base records. Drop units left with empty prose (all code
+  //    or all quote — no voice), then collapse exact-id duplicates (idempotency).
   const byId = new Map<string, CorpusRecord>();
   const ordered: CorpusRecord[] = [];
   for (const unit of units) {
     const record = toRecord(unit, options);
+    if (record.text_clean.trim() === "") {
+      continue;
+    }
     if (!byId.has(record.id)) {
       byId.set(record.id, record);
       ordered.push(record);
