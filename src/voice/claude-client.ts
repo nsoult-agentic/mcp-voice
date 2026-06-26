@@ -14,7 +14,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Generator } from "./generate";
 
 export const DEFAULT_MODEL = "claude-opus-4-8";
-const DEFAULT_MAX_TOKENS = 4096;
+// Generous enough that even the `longform` register won't truncate in practice.
+// A `max_tokens`-truncated draft is intentionally NOT thrown — it flows into the
+// gate, where its mangled tail scores poorly on Gate A and triggers a retry,
+// which is gentler than aborting the whole call.
+const DEFAULT_MAX_TOKENS = 8192;
 
 /** The slice of the Anthropic SDK surface this client uses (keeps tests SDK-free). */
 export interface MessagesApi {
