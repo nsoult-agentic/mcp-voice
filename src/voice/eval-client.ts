@@ -57,7 +57,11 @@ export type CalibrateBlob = z.infer<typeof CalibrateBlobSchema>;
 export interface EvalClientDeps {
   baseUrl: string;
   fetch?: typeof fetch;
+  /** Per-request timeout; a hung sidecar must not stall the gated-generation loop. */
+  timeoutMs?: number;
 }
+
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface EvalClient extends Evaluator {
   calibrate(
@@ -70,11 +74,17 @@ export interface EvalClient extends Evaluator {
   health(): Promise<{ status: string; profiles_loaded: number }>;
 }
 
-async function postJson(doFetch: typeof fetch, url: string, body: unknown): Promise<unknown> {
+async function postJson(
+  doFetch: typeof fetch,
+  url: string,
+  body: unknown,
+  timeoutMs: number,
+): Promise<unknown> {
   const res = await doFetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
     throw new Error(`eval-harness ${url} → ${res.status}: ${await res.text()}`);
@@ -86,6 +96,7 @@ async function postJson(doFetch: typeof fetch, url: string, body: unknown): Prom
 export function createEvalClient(deps: EvalClientDeps): EvalClient {
   const doFetch = deps.fetch ?? fetch;
   const base = deps.baseUrl.replace(/\/$/, "");
+  const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return {
     async evaluate(
@@ -94,12 +105,12 @@ export function createEvalClient(deps: EvalClientDeps): EvalClient {
       register: Register,
       strictness: string,
     ): Promise<Verdict> {
-      const json = await postJson(doFetch, `${base}/evaluate`, {
-        text,
-        author_id,
-        register,
-        strictness,
-      });
+      const json = await postJson(
+        doFetch,
+        `${base}/evaluate`,
+        { text, author_id, register, strictness },
+        timeoutMs,
+      );
       return VerdictSchema.parse(json);
     },
 
@@ -110,18 +121,17 @@ export function createEvalClient(deps: EvalClientDeps): EvalClient {
       impostors: string[],
       mfwCount = 200,
     ): Promise<CalibrateBlob> {
-      const json = await postJson(doFetch, `${base}/calibrate`, {
-        author_id,
-        register,
-        genuine,
-        impostors,
-        mfw_count: mfwCount,
-      });
+      const json = await postJson(
+        doFetch,
+        `${base}/calibrate`,
+        { author_id, register, genuine, impostors, mfw_count: mfwCount },
+        timeoutMs,
+      );
       return CalibrateBlobSchema.parse(json);
     },
 
     async health(): Promise<{ status: string; profiles_loaded: number }> {
-      const res = await doFetch(`${base}/health`);
+      const res = await doFetch(`${base}/health`, { signal: AbortSignal.timeout(timeoutMs) });
       if (!res.ok) {
         throw new Error(`eval-harness /health → ${res.status}`);
       }
