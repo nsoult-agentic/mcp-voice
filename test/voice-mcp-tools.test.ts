@@ -65,6 +65,13 @@ describe("MCP tool surface (spec 06)", () => {
     ).rejects.toThrow();
   });
 
+  test("rejects oversized input at the trust boundary (DoS cap)", async () => {
+    const huge = "x".repeat(100_001);
+    await expect(
+      voiceGenerateTool.handle({ ...GEN_INPUT, brief: huge }, fakeEngine()),
+    ).rejects.toThrow();
+  });
+
   test("§9.2 every content verb returns verdict + gate (no bypass)", async () => {
     const out = (await voiceGenerateTool.handle(GEN_INPUT, fakeEngine())) as GateResult;
     expect(out.verdict).toBe("PASS");
