@@ -1,0 +1,51 @@
+"""Calibration (spec 03 §8) — what makes a similarity score mean something.
+
+Builds, per (author_id, register): the author centroid (Cosine-Delta scorer) and
+the author-vs-impostor score distribution from which Gate-A percentile thresholds
+are derived. Also computes the StyleCard targets (spec 04 §4a). The resulting blob
+is cached in the sidecar and returned for `storage` to persist into voice.profiles.
+
+Negatives are BOTH AI text and a public other-humans corpus (decision E1); callers
+pass them combined as `impostors`.
+"""
+
+from __future__ import annotations
+
+from . import features
+from .metrics import roc_auc
+from .stylometry import CosineDeltaScorer
+
+DEFAULT_MFW = 200
+
+
+def calibrate(
+    genuine: list[str],
+    impostors: list[str],
+    register: str,
+    mfw_count: int = DEFAULT_MFW,
+) -> dict:
+    if not genuine:
+        raise ValueError("calibrate needs genuine exemplars")
+    if not impostors:
+        raise ValueError("calibrate needs impostor negatives (E1)")
+
+    reference = genuine + impostors
+    scorer = CosineDeltaScorer.fit(genuine, reference, mfw_count)
+    genuine_scores = [scorer.similarity(t) for t in genuine]
+    impostor_scores = [scorer.similarity(t) for t in impostors]
+
+    auc = roc_auc(genuine_scores + impostor_scores, [1] * len(genuine) + [0] * len(impostors))
+
+    return {
+        "register": register,
+        "mfw_count": mfw_count,
+        "scorer": scorer.to_dict(),
+        "genuine_scores": genuine_scores,
+        "impostor_scores": impostor_scores,
+        "targets": features.compute_targets(genuine),
+        "metrics": {
+            "roc_auc": round(auc, 4),
+            "n_genuine": len(genuine),
+            "n_impostor": len(impostors),
+        },
+    }
