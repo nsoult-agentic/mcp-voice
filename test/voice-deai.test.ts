@@ -82,6 +82,22 @@ describe("deAI orchestrator", () => {
     expect(r.verdict).toBe("PASS");
   });
 
+  test("clean text with indentation + double spaces is byte-identical (§8.1)", async () => {
+    const structured = "Plan:\n  - first item\n      - nested item\nDone.  Really.";
+    for (const register of ["chat", "email", "longform"] as const) {
+      const r = await deAI(structured, { register });
+      expect(r.text).toBe(structured);
+      expect(r.changed).toBe(false);
+    }
+  });
+
+  test("preserves sentence-initial capitalization on a swap", async () => {
+    const r = await deAI("Delve into the plan. When it comes to scope, keep it tight.", {
+      register: "email",
+    });
+    expect(r.text).toBe("Look into the plan. For scope, keep it tight.");
+  });
+
   test("reduces human-cue tells and surfaces the registry version (§8.3, §8.5)", async () => {
     const before = detectHits(AI_ISH, "longform").length;
     const r = await deAI(AI_ISH, { register: "longform" });

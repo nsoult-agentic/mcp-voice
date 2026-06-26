@@ -42,6 +42,14 @@ export function detectHits(text: string, register: Register): Hit[] {
   return hits;
 }
 
+/** Keep the matched word's leading case so a sentence-initial swap stays capitalized. */
+function preserveLeadingCase(match: string, replacement: string): string {
+  if (replacement.length > 0 && /^[A-Z]/.test(match) && /^[a-z]/.test(replacement)) {
+    return replacement.charAt(0).toUpperCase() + replacement.slice(1);
+  }
+  return replacement;
+}
+
 /** Apply the deterministic `replace` of every matching tell in `tells`. */
 function applyReplacements(text: string, tells: Tell[]): PassResult {
   let out = text;
@@ -50,9 +58,12 @@ function applyReplacements(text: string, tells: Tell[]): PassResult {
     if (tell.replace === null) {
       continue; // detect-only — not auto-rewritten here
     }
+    const replacement = tell.replace;
     const count = countMatches(out, tell);
     if (count > 0) {
-      out = out.replace(compile(tell), tell.replace);
+      out = replacement.includes("$")
+        ? out.replace(compile(tell), replacement) // backreference (e.g. bold $1)
+        : out.replace(compile(tell), (match) => preserveLeadingCase(match, replacement));
       hits.push({ id: tell.id, category: tell.category, count });
     }
   }
@@ -74,8 +85,12 @@ export function rhetoricalPass(text: string, register: Register): PassResult {
     ...byCategory(register, "stock_phrase"),
   ];
   const result = applyReplacements(text, tells);
-  // Tidy doubled spaces left by stripped scaffolding, without touching newlines.
-  return { ...result, text: result.text.replace(/ {2,}/g, " ").replace(/^ +/gm, "") };
+  if (result.hits.length === 0) {
+    return result; // §8.1: clean text is never touched
+  }
+  // Tidy only the artifacts a strip can leave: doubled spaces and a leading space at
+  // the very start. NOT per-line (`^ +/gm` would eat legitimate indentation).
+  return { ...result, text: result.text.replace(/ {2,}/g, " ").replace(/^ +/, "") };
 }
 
 /** Em-dash density per 100 words, by register (chat tolerates the most). */
