@@ -33,9 +33,13 @@ const StyleCardSchema = z.object({
   }),
 });
 
-// Compile-time guarantee the schema matches the hand-written StyleCard.
-const _parity: StyleCard = {} as z.infer<typeof StyleCardSchema>;
-void _parity;
+// Compile-time guarantee the schema and the hand-written StyleCard match BOTH ways:
+// infer→type catches a schema field the type lacks; type→infer catches a type field
+// the schema lacks (which parse() would silently strip → loop reads undefined).
+const _parityA: StyleCard = {} as z.infer<typeof StyleCardSchema>;
+const _parityB: z.infer<typeof StyleCardSchema> = {} as StyleCard;
+void _parityA;
+void _parityB;
 
 /** An active profile is at least generation-ready; richer corpora earn profile-grade. */
 const PROFILE_GRADE_MIN_EXEMPLARS = 50;
