@@ -68,15 +68,16 @@ def compute_targets(texts: list[str]) -> dict:
     all_words = _words(joined)
     total_words = max(len(all_words), 1)
 
-    sent_lengths = [len(_words(s)) for s in _sentences(joined)]
+    sentences = _sentences(joined)
+    sent_lengths = [len(_words(s)) for s in sentences]
     sent_lengths = [n for n in sent_lengths if n > 0]
     mean_len = statistics.mean(sent_lengths) if sent_lengths else 0.0
     var_len = statistics.pvariance(sent_lengths) if len(sent_lengths) > 1 else 0.0
 
     punct = {name: len(rx.findall(joined)) / total_words for name, rx in _PUNCT.items()}
 
-    lc_starts = sum(1 for s in _sentences(joined) if s[:1].islower())
-    n_sent = max(len(_sentences(joined)), 1)
+    lc_starts = sum(1 for s in sentences if s[:1].islower())
+    n_sent = max(len(sentences), 1)
 
     return {
         "sentence_len_mean": round(mean_len, 3),
