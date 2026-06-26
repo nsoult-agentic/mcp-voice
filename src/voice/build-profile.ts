@@ -78,6 +78,12 @@ export function meanVector(vectors: number[][]): number[] | null {
     return null;
   }
   const dim = vectors[0]?.length ?? 0;
+  // Fail loud on ragged input rather than silently dragging the centroid toward
+  // zero (the live path is all-768d, but a future off-path caller shouldn't average
+  // mismatched dims into a wrong vector).
+  if (vectors.some((v) => v.length !== dim)) {
+    throw new Error(`meanVector: vectors must share a dimension (expected ${dim})`);
+  }
   const sum = new Array<number>(dim).fill(0);
   for (const v of vectors) {
     for (let i = 0; i < dim; i += 1) {
