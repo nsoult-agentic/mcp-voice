@@ -61,8 +61,10 @@ function applyReplacements(text: string, tells: Tell[]): PassResult {
     const replacement = tell.replace;
     const count = countMatches(out, tell);
     if (count > 0) {
-      out = replacement.includes("$")
-        ? out.replace(compile(tell), replacement) // backreference (e.g. bold $1)
+      // Only an actual backreference ($1, $<name>, $&) skips case preservation — a
+      // literal `$` (e.g. a future "$5" substitute) must still preserve case.
+      out = /\$[1-9<&]/.test(replacement)
+        ? out.replace(compile(tell), replacement)
         : out.replace(compile(tell), (match) => preserveLeadingCase(match, replacement));
       hits.push({ id: tell.id, category: tell.category, count });
     }
