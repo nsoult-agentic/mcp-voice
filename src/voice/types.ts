@@ -9,6 +9,9 @@ import type { Register } from "../corpus-record";
 
 export type Readiness = "insufficient" | "generation-ready" | "profile-grade";
 
+/** Mirror of the eval-harness Strictness literal (spec 03 §4) — keep in sync with the sidecar. */
+export type Strictness = "lenient" | "normal" | "strict";
+
 /** Computed, factual targets (eval-harness /features) — can't drift from the corpus. */
 export interface StyleCardTargets {
   sentence_len_mean: number;

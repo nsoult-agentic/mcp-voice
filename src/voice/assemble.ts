@@ -41,11 +41,15 @@ function renderTargets(t: StyleCard["targets"]): string {
 }
 
 function renderStyleCard(card: StyleCard): string {
+  // Defense-in-depth for §6: the profile builder is meant to produce positively-
+  // framed prose, but drop any bullet that slipped through as a negative directive
+  // so the assembled prompt can't carry a "do-not" list regardless of upstream.
+  const positive = (xs: string[]) => xs.filter((x) => !hasNegativeDirective(x));
   const lines = [
     "VOICE — write as this author:",
     card.prose.voice_summary,
-    ...card.prose.habits.map((h) => `- ${h}`),
-    ...card.prose.do_more_of.map((d) => `- lean into: ${d}`),
+    ...positive(card.prose.habits).map((h) => `- ${h}`),
+    ...positive(card.prose.do_more_of).map((d) => `- lean into: ${d}`),
     renderTargets(card.targets),
   ];
   return lines.join("\n");

@@ -15,7 +15,7 @@
  */
 import type { Register } from "../corpus-record";
 import { assemble } from "./assemble";
-import type { RegisterProfile, Verdict } from "./types";
+import type { RegisterProfile, Strictness, Verdict } from "./types";
 
 export const MAX_ATTEMPTS = 3; // V2: 2 retries / 3 total
 const EXEMPLAR_K = 3; // spike: 3 ≈ 5 ≈ 8 — no benefit beyond a few
@@ -30,7 +30,7 @@ export interface Evaluator {
     text: string,
     author_id: string,
     register: Register,
-    strictness: string,
+    strictness: Strictness,
   ): Promise<Verdict>;
 }
 
@@ -61,7 +61,7 @@ export interface GenerateOptions {
   author_id: string;
   register: Register;
   task: string;
-  strictness?: string;
+  strictness?: Strictness;
   groundingQuery?: string;
 }
 

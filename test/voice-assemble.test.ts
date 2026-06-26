@@ -73,4 +73,15 @@ describe("positive framing (§6)", () => {
     expect(hasNegativeDirective("avoid long sentences")).toBe(true);
     expect(hasNegativeDirective("write in your voice")).toBe(false);
   });
+
+  test("a negative-directive bullet that slips into the card is filtered out", () => {
+    const tainted: StyleCard = {
+      ...CARD,
+      prose: { ...CARD.prose, habits: ["opens with the ask", "avoid jargon"] },
+    };
+    const out = assemble({ styleCard: tainted, exemplars: ["clean"], task: "clean" });
+    expect(out).toContain("opens with the ask");
+    expect(out).not.toContain("avoid jargon");
+    expect(hasNegativeDirective(out)).toBe(false);
+  });
 });
