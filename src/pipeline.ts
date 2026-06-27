@@ -45,6 +45,11 @@ function countWords(text: string): number {
  * Matrix place quoted text on opposite ends, so each needs its own stripper.
  */
 function stripFor(medium: Medium, rawText: string): string {
+  // Imported mediums (slack/claude) are already pre-cleaned operator text with no
+  // reply/quote boundaries — stripping could wrongly trim genuine content, so skip it.
+  if (medium === "slack" || medium === "claude") {
+    return rawText;
+  }
   return medium === "matrix" ? stripMatrixBoundaries(rawText) : stripBoundaries(rawText);
 }
 
