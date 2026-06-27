@@ -1,72 +1,89 @@
 /**
- * Live construction of the VoiceEngine (spec 06 §3) — the wiring tail.
+ * Live construction of the VoiceEngine (spec 06 §3) — the wiring tail that assembles
+ * every real dependency from the environment. Construction-only: it touches getDb(),
+ * the Anthropic SDK, the eval sidecar, and Ollama, so it can't be unit-tested (the
+ * engine LOGIC it builds is tested via createVoiceEngine with injected fakes). tsc
+ * verifies it compiles against every seam.
  *
- * It assembles everything that ALREADY EXISTS and is tested (Postgres stores +
- * adapters, the eval-harness HTTP client, the Claude generator, the in-memory job
- * store) into a working generate/rewrite/transform/deai engine. The pieces that
- * are NOT built yet are taken as explicit parameters rather than fabricated:
- *   - `embedders` — no concrete embedder ships yet (pre-prod item);
- *   - `directory` — voice_list / voice_status need new storage queries;
- *   - `buildVoice` — voice_add's full ingest→store→build pipeline (M2).
- * Supply those and this returns a live engine. Requires ANTHROPIC_API_KEY, a running
- * eval-harness sidecar (EVAL_HARNESS_URL), and a Postgres/pgvector DB (getDb env).
+ * Reuses the existing infra (operator-confirmed): the NUC second_brain Postgres
+ * (voice. schema), the Mac Mini nomic-embed-text endpoint, the eval sidecar. Needs
+ * ANTHROPIC_API_KEY + DB_PASSWORD (env or /secrets) in the environment.
  *
- * NOTE: this module is construction-only — it cannot be exercised without the live
- * services above, so it carries no unit tests (the engine LOGIC it builds is tested
- * via createVoiceEngine with injected fakes).
+ * Corpus is a prepared file (Slack + Claude chat, out-of-band); the server can't reach
+ * Nextcloud/transcripts at runtime. voice_add's `sources` is unused by the file source
+ * in v1 (the file IS the corpus) — a caller still passes a dummy source to satisfy the
+ * schema until the live email/matrix adapters land.
  */
+import { randomUUID } from "node:crypto";
+import Anthropic from "@anthropic-ai/sdk";
 import { getDb } from "../db";
-import type { Embedders } from "../embedder";
 import { createExemplarStore } from "../exemplar-store";
 import { createProfileStore } from "../profile-store";
-import { createClaudeGenerator } from "./claude-client";
-import type { AiDetector, RhythmRewriter } from "./deai/deai";
-import { createInMemoryJobStore, createVoiceEngine, type ProfileDirectory } from "./engine";
+import { type ClaudeClient, createClaudeGenerator } from "./claude-client";
+import { createBuildVoice } from "./build-voice";
+import { type BuildProfileDeps, createHybridImpostorSource } from "./build-profile";
+import { createFileCorpusSource } from "./corpus-file";
+import { createClaudeRhythmRewriter } from "./deai/rhythm";
+import { createOtherAuthorsSource, createProfileDirectory } from "./directory";
+import { createNomicEmbedders } from "./embedder-ollama";
+import { createInMemoryJobStore, createVoiceEngine } from "./engine";
 import { createEvalClient } from "./eval-client";
+import { createClaudeProseExtractor } from "./prose-extractor";
 import type { VoiceEngine } from "./mcp/tools";
-import type { voiceAddInput } from "./mcp/schemas";
 import { createStorageExemplarSource, createStorageProfileSource } from "./storage-adapters";
-import type { z } from "zod";
 
-const DEFAULT_EVAL_URL = "http://localhost:8920";
+const DEFAULT_EVAL_URL = "http://127.0.0.1:8920";
+// The Mac Mini Ollama the Second Brain already runs (operator-confirmed); overridable.
+const DEFAULT_OLLAMA_URL = "http://172.16.10.50:11434";
+const DEFAULT_CORPUS_PATH = "/srv/mcp-voice/corpus/operator.json";
+const INGEST_VERSION = "1";
 
-export interface FromEnvDeps {
-  /** No concrete embedder ships yet — caller supplies the content+style pair. */
-  embedders: Embedders;
-  /** voice_list / voice_status backing (new storage queries — live tail). */
-  directory: ProfileDirectory;
-  /** voice_add's full pipeline (ingest → store → per-register profile, M2). */
-  buildVoice(input: z.infer<typeof voiceAddInput>): Promise<void>;
-  /** Optional advisory AI detector (Gate B) and LLM rhythm rewrite (de-AI Pass 3). */
-  detector?: AiDetector;
-  rhythm?: RhythmRewriter;
+function env(name: string, fallback: string): string {
+  const v = process.env[name];
+  return v !== undefined && v.length > 0 ? v : fallback;
 }
 
-/** Construct a live VoiceEngine from the environment + the not-yet-built pieces. */
-export function createVoiceEngineFromEnv(deps: FromEnvDeps): VoiceEngine {
+/** Construct the live VoiceEngine from the environment + existing infra. */
+export function createVoiceEngineFromEnv(): VoiceEngine {
   const sql = getDb();
-  const evalClient = createEvalClient({
-    baseUrl: process.env["EVAL_HARNESS_URL"] ?? DEFAULT_EVAL_URL,
-  });
-  const generator = createClaudeGenerator(); // reads ANTHROPIC_API_KEY from env
-  const exemplarStore = createExemplarStore({ sql, embedders: deps.embedders });
+  const claude = new Anthropic() as unknown as ClaudeClient; // ANTHROPIC_API_KEY from env
+  const embedders = createNomicEmbedders({ baseUrl: env("OLLAMA_BASE_URL", DEFAULT_OLLAMA_URL) });
+  const evalClient = createEvalClient({ baseUrl: env("EVAL_HARNESS_URL", DEFAULT_EVAL_URL) });
+
+  const exemplarStore = createExemplarStore({ sql, embedders });
   const profileStore = createProfileStore({ sql });
+
+  const buildProfile: BuildProfileDeps = {
+    exemplars: exemplarStore,
+    calibrator: evalClient,
+    prose: createClaudeProseExtractor({ client: claude }),
+    impostors: createHybridImpostorSource({ otherAuthors: createOtherAuthorsSource({ sql }) }),
+    profiles: profileStore,
+  };
+
+  const voiceBuilder = createBuildVoice({
+    corpus: createFileCorpusSource({ path: env("CORPUS_PATH", DEFAULT_CORPUS_PATH) }),
+    buildProfile,
+    ingestVersion: INGEST_VERSION,
+    newVersion: () => randomUUID(),
+    now: () => new Date().toISOString(),
+  });
 
   return createVoiceEngine({
     generate: {
-      generator,
+      generator: createClaudeGenerator({ client: claude }),
       evaluator: evalClient,
       exemplars: createStorageExemplarSource(exemplarStore),
       profiles: createStorageProfileSource(profileStore),
     },
-    deai: {
-      // The content embedder backs the de-AI meaning-preservation guard.
-      embedder: deps.embedders.content,
-      ...(deps.detector ? { detector: deps.detector } : {}),
-      ...(deps.rhythm ? { rhythm: deps.rhythm } : {}),
-    },
-    directory: deps.directory,
+    // de-AI: content embedder backs the meaning guard; rhythm pass at strict. Gate-B
+    // detector deferred (no model wired) — stays advisory-absent.
+    deai: { embedder: embedders.content, rhythm: createClaudeRhythmRewriter({ client: claude }) },
+    directory: createProfileDirectory({ sql }),
     jobs: createInMemoryJobStore(),
-    buildVoice: deps.buildVoice,
+    // The job only tracks success/failure; discard the build result → Promise<void>.
+    buildVoice: async (input) => {
+      await voiceBuilder(input);
+    },
   });
 }
