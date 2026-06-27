@@ -57,7 +57,7 @@ function toGateResult(
 ): GateResult {
   const failed = [...extraFailed];
   if (!r.verdict.gate_a.passed) failed.push("gate_a");
-  if (r.verdict.gate_b.flag === "high") failed.push("gate_b");
+  if (r.verdict.gate_b.flag !== "none") failed.push("gate_b"); // any detector flag, not just high
   if (r.cold_start) failed.push("cold_start");
   const verdict =
     extraFailed.length > 0 && r.verdict.verdict === "PASS" ? "REVIEW" : r.verdict.verdict;
@@ -70,7 +70,9 @@ function toGateResult(
       // register_fit: no separate cross-register signal yet — mirror Gate A for now.
       register_fit: clamp01(r.verdict.gate_a.percentile),
     },
-    gate: { passed: failed.length === 0, failed_checks: failed },
+    // Derive gate.passed from the authoritative verdict so the boolean can NEVER
+    // disagree with it (review HIGH); failed_checks explains why it's not a PASS.
+    gate: { passed: verdict === "PASS", failed_checks: failed },
     register,
     voice_id,
   };

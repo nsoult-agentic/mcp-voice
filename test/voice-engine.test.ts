@@ -120,6 +120,57 @@ describe("voice engine — content verbs", () => {
     expect(r.voice_id).toBe("operator");
   });
 
+  test("gate.passed never contradicts a REVIEW verdict (Gate-B-flagged pass)", async () => {
+    // gate_a passes but gate_b flags → eval-harness verdict REVIEW. gate.passed must
+    // be false (derived from verdict), with gate_b surfaced in failed_checks.
+    const reviewVerdict: Verdict = {
+      verdict: "REVIEW",
+      gate_a: {
+        passed: true,
+        percentile: 0.7,
+        cosine_delta: 0,
+        style_cosine: null,
+        threshold_percentile: 0.4,
+      },
+      gate_b: { flag: "low", abstained: false },
+      register: "email",
+      word_count: 50,
+    };
+    const gd: GenerateDeps = {
+      generator: {
+        async generate() {
+          return "candidate";
+        },
+      },
+      evaluator: {
+        async evaluate() {
+          return reviewVerdict;
+        },
+      },
+      exemplars: {
+        async styleExemplars() {
+          return ["ex"];
+        },
+        async groundingExemplars() {
+          return [];
+        },
+      },
+      profiles: {
+        async getActiveProfile() {
+          return PROFILE;
+        },
+      },
+    };
+    const r = await engineWith(gd).generate({
+      brief: "x",
+      voice_id: "operator",
+      register: "email",
+    });
+    expect(r.verdict).toBe("REVIEW");
+    expect(r.gate.passed).toBe(false);
+    expect(r.gate.failed_checks).toContain("gate_b");
+  });
+
   test("rewrite flags a meaning breach (dropped number) and downgrades to REVIEW", async () => {
     // generator returns text missing the "5" from the input → meaning guard breach.
     const engine = engineWith(genDeps("Ship builds now").deps);
