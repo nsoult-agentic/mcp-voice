@@ -10,8 +10,13 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 
-/** Mediums in scope (§2, D2): email + matrix. doc/commit/pr remain deferred. */
-const MediumSchema = z.enum(["email", "matrix"]);
+/**
+ * Mediums in scope: email + matrix (live adapters), plus `slack` + `claude` —
+ * imported, PRE-CLEANED operator text (curated Slack export, Claude-chat history).
+ * Imported mediums carry no reply/quote boundaries, so the pipeline skips boundary
+ * stripping for them (provenance lives in `source_uri`). doc/commit/pr deferred.
+ */
+const MediumSchema = z.enum(["email", "matrix", "slack", "claude"]);
 export type Medium = z.infer<typeof MediumSchema>;
 
 /** Register taxonomy (D1): chat | email | longform. */
@@ -28,6 +33,10 @@ export const REGISTERS = RegisterSchema.options;
 export const MEDIUM_REGISTER_DEFAULT = {
   email: "email",
   matrix: "chat",
+  // Imported sources: curated Slack skews longform, Claude-chat skews chat. The
+  // content classifier still overrides on a strong signal (a short Slack note → chat).
+  slack: "longform",
+  claude: "chat",
 } as const satisfies Record<Medium, Register>;
 
 /**
