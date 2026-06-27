@@ -82,7 +82,13 @@ export async function deAI(
   let current = text;
   const rolledBack: string[] = [];
   for (const pass of passSet(strictness, deps.rhythm)) {
-    const result = await pass.run(current, register);
+    let result: { text: string };
+    try {
+      result = await pass.run(current, register);
+    } catch {
+      rolledBack.push(pass.name); // a failing pass (e.g. an LLM error) is skipped, not fatal
+      continue;
+    }
     if (result.text === current) {
       continue; // pass changed nothing
     }
