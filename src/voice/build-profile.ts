@@ -18,13 +18,12 @@ import type { ProfileStore } from "../profile-store";
 import type { CalibrateBlob } from "./eval-client";
 import { BUNDLED_NEGATIVES } from "./negatives";
 import type { ProseExtractor } from "./prose-extractor";
-import type { Readiness, StyleCard } from "./types";
+import { PROFILE_GRADE_MIN, type Readiness, type StyleCard } from "./types";
 
 /** Spec §5: require ≥ ~5 canonical exemplars, else the register is cold-start (§8). */
 export const MIN_EXEMPLARS = 5;
 const MAX_GENUINE = 500; // upper bound on the genuine corpus pulled for calibration
 const PROSE_SAMPLE = 8; // exemplars shown to the prose extractor
-const PROFILE_GRADE_MIN = 50;
 
 /** Raised when a register lacks enough corpus to build a profile (caller → cold-start). */
 export class InsufficientCorpusError extends Error {

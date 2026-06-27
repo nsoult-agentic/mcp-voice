@@ -9,6 +9,10 @@ import type { Register } from "../corpus-record";
 
 export type Readiness = "insufficient" | "generation-ready" | "profile-grade";
 
+/** Exemplar count at/above which an active profile counts as profile-grade. Single
+ * source of truth — used by profile build, the directory, and the storage adapters. */
+export const PROFILE_GRADE_MIN = 50;
+
 /** Mirror of the eval-harness Strictness literal (spec 03 §4) — keep in sync with the sidecar. */
 export type Strictness = "lenient" | "normal" | "strict";
 

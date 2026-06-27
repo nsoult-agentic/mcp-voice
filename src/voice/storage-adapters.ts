@@ -13,7 +13,7 @@ import type { Register } from "../corpus-record";
 import type { ExemplarStore } from "../exemplar-store";
 import type { ProfileStore } from "../profile-store";
 import type { ExemplarSource, ProfileSource } from "./generate";
-import type { Readiness, RegisterProfile, StyleCard } from "./types";
+import { PROFILE_GRADE_MIN, type Readiness, type RegisterProfile, type StyleCard } from "./types";
 
 const StyleCardSchema = z.object({
   targets: z.object({
@@ -42,10 +42,8 @@ void _parityA;
 void _parityB;
 
 /** An active profile is at least generation-ready; richer corpora earn profile-grade. */
-const PROFILE_GRADE_MIN_EXEMPLARS = 50;
-
 function readinessFor(exemplarCount: number): Readiness {
-  return exemplarCount >= PROFILE_GRADE_MIN_EXEMPLARS ? "profile-grade" : "generation-ready";
+  return exemplarCount >= PROFILE_GRADE_MIN ? "profile-grade" : "generation-ready";
 }
 
 /** ExemplarSource backed by the persisted exemplar store. */
