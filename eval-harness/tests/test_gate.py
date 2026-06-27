@@ -63,7 +63,10 @@ def test_calibrate_flags_low_separation():
 
 def test_low_separation_profile_never_confidently_passes():
     profile, genuine, _ = _profile()
-    profile["metrics"]["low_separation"] = True  # mark the profile unreliable
+    # Baseline: with a separable profile, genuine[0] is a clean PASS.
+    assert gate.evaluate(genuine[0], profile, "email", "normal")["verdict"] == "PASS"
+    # Flip the profile to low-separation → the same doc is downgraded to REVIEW.
+    profile["metrics"]["low_separation"] = True
     v = gate.evaluate(genuine[0], profile, "email", "normal")
-    assert v["verdict"] == "REVIEW"  # would PASS, but downgraded by low separation
+    assert v["verdict"] == "REVIEW"
     assert v["gate_a"]["low_separation"] is True
