@@ -12,10 +12,8 @@ import { REGISTERS } from "../corpus-record";
 import type { Sql } from "../db";
 import type { ProfileDirectory } from "./engine";
 import type { VoiceListResult, VoiceStatusResult } from "./mcp/schemas";
+import { PROFILE_GRADE_MIN } from "./types";
 
-// Exemplar count at/above which an active profile counts as profile-grade (keep in
-// sync with build-profile.ts / storage-adapters.ts).
-const PROFILE_GRADE_MIN = 50;
 const DEFAULT_IMPOSTOR_LIMIT = 200;
 
 function readiness(exemplarCount: number): "generation-ready" | "profile-grade" {
@@ -58,7 +56,7 @@ export function createProfileDirectory(deps: { sql: Sql }): ProfileDirectory {
       const registers: VoiceStatusResult["registers"] = REGISTERS.map((register) => {
         const profile = byRegisterActive.get(register);
         const exemplars = profile?.exemplar_count ?? byRegisterCount.get(register) ?? 0;
-        const coverage = Math.min(1, exemplars / PROFILE_GRADE_MIN);
+        const coverage = Math.max(0, Math.min(1, exemplars / PROFILE_GRADE_MIN));
         if (profile) {
           return {
             register,
