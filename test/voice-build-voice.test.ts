@@ -43,6 +43,7 @@ function exemplar(text: string): Exemplar {
 function rawUnit(i: number, text: string): RawUnit {
   return {
     author_id: "operator",
+    author_address: "@operator:matrix.local",
     medium: "matrix",
     source_uri: `matrix:event:${i}`,
     thread_id: null,

@@ -8,6 +8,11 @@
  * unit-testable without a live API/sidecar/DB; the from-env wiring supplies the real
  * ones. A register too thin to calibrate (< MIN_EXEMPLARS) is skipped as cold-start —
  * it doesn't fail the whole build.
+ *
+ * Partial progress on failure: registers activate as they build, so a non-cold-start
+ * error mid-loop rethrows (marking the voice_add job failed) while earlier registers
+ * stay live. This is recoverable — re-running is idempotent on exemplars and rebuilds
+ * produce fresh versions — but the job's "failed" can coexist with some registers ready.
  */
 import type { z } from "zod";
 import { runPipeline } from "../pipeline";
