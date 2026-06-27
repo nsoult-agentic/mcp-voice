@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/index.ts"],
+  "entry": ["src/index.ts", "src/voice/from-env.ts", "src/voice/mcp/server.ts"],
   "project": ["src/**/*.{ts,js}"],
   "ignoreUnresolved": ["bun-types"],
   "rules": {
