@@ -47,3 +47,26 @@ def test_strictness_raises_the_bar():
     lenient = gate.evaluate(genuine[0], profile, "email", "lenient")
     strict = gate.evaluate(genuine[0], profile, "email", "strict")
     assert lenient["gate_a"]["threshold_percentile"] < strict["gate_a"]["threshold_percentile"]
+
+
+def test_calibrate_flags_low_separation():
+    genuine, impostors = corpora()
+    # Separable author vs impostors → not flagged.
+    good = calibration.calibrate(genuine, impostors, "email", mfw_count=100)
+    assert good["metrics"]["low_separation"] is False
+    assert good["metrics"]["roc_auc"] >= 0.6
+    # Identical genuine/impostor sets → AUC = 0.5 (no separation) → flagged.
+    bad = calibration.calibrate(genuine, genuine, "email", mfw_count=100)
+    assert bad["metrics"]["roc_auc"] <= 0.6
+    assert bad["metrics"]["low_separation"] is True
+
+
+def test_low_separation_profile_never_confidently_passes():
+    profile, genuine, _ = _profile()
+    # Baseline: with a separable profile, genuine[0] is a clean PASS.
+    assert gate.evaluate(genuine[0], profile, "email", "normal")["verdict"] == "PASS"
+    # Flip the profile to low-separation → the same doc is downgraded to REVIEW.
+    profile["metrics"]["low_separation"] = True
+    v = gate.evaluate(genuine[0], profile, "email", "normal")
+    assert v["verdict"] == "REVIEW"
+    assert v["gate_a"]["low_separation"] is True

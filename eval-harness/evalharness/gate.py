@@ -47,6 +47,9 @@ def evaluate(text: str, profile: dict, register: str, strictness: str = "normal"
 
     passed = percentile >= threshold
     borderline = abs(percentile - threshold) <= ABSTAIN_BAND
+    # A profile that doesn't separate the author from impostors makes the percentile
+    # meaningless — never confidently PASS against it (build-phase guard).
+    low_separation = bool(profile.get("metrics", {}).get("low_separation", False))
 
     # Gate B (advisory) — deferred detector: abstains; never high here.
     gate_b = {
@@ -61,7 +64,8 @@ def evaluate(text: str, profile: dict, register: str, strictness: str = "normal"
     elif borderline:
         verdict = "REVIEW"
     elif passed:
-        verdict = "REVIEW" if gate_b["flag"] == "high" else "PASS"
+        # Gate B high OR an unreliable (low-separation) profile downgrades PASS→REVIEW.
+        verdict = "REVIEW" if (gate_b["flag"] == "high" or low_separation) else "PASS"
     else:
         verdict = "FAIL"
 
@@ -73,6 +77,7 @@ def evaluate(text: str, profile: dict, register: str, strictness: str = "normal"
             "style_cosine": None,  # StyleDistance seam (deferred)
             "percentile": round(percentile, 4),
             "threshold_percentile": threshold,
+            "low_separation": low_separation,
         },
         "gate_b": gate_b,
         "register": register,

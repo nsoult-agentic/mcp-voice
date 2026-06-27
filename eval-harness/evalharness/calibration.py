@@ -16,6 +16,10 @@ from .metrics import roc_auc
 from .stylometry import CosineDeltaScorer
 
 DEFAULT_MFW = 200
+# Below this author-vs-impostor ROC-AUC the centroid can't tell the author from
+# strangers — the stylometric gate is meaningless, so flag the profile (spec §8,
+# build-phase guard). The gate then refuses to confidently PASS against it.
+MIN_SEPARATION_AUC = 0.6
 
 
 def calibrate(
@@ -34,7 +38,9 @@ def calibrate(
     genuine_scores = [scorer.similarity(t) for t in genuine]
     impostor_scores = [scorer.similarity(t) for t in impostors]
 
-    auc = roc_auc(genuine_scores + impostor_scores, [1] * len(genuine) + [0] * len(impostors))
+    auc = round(
+        roc_auc(genuine_scores + impostor_scores, [1] * len(genuine) + [0] * len(impostors)), 4
+    )
 
     return {
         "register": register,
@@ -44,8 +50,10 @@ def calibrate(
         "impostor_scores": impostor_scores,
         "targets": features.compute_targets(genuine),
         "metrics": {
-            "roc_auc": round(auc, 4),
+            # roc_auc and the flag use the same rounded value so they never disagree.
+            "roc_auc": auc,
             "n_genuine": len(genuine),
             "n_impostor": len(impostors),
+            "low_separation": auc < MIN_SEPARATION_AUC,
         },
     }
