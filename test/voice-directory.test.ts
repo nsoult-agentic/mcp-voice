@@ -163,17 +163,18 @@ describe.skipIf(!RUN_DB)("voice directory (integration, pgvector)", () => {
       register: "email",
       text: "alice email two",
     });
+    // operator-only chat exemplar — must NOT count as an impostor for the operator
     await insertExemplar(sql, {
-      id: "al-chat",
-      author_id: "alice",
+      id: "op-chat",
+      author_id: "operator",
       register: "chat",
-      text: "alice chat msg",
+      text: "operator chat msg",
     });
 
     const others = createOtherAuthorsSource({ sql });
     const emailImpostors = await others("operator", "email");
-    expect(emailImpostors.sort()).toEqual(["alice email one", "alice email two"]);
-    // operator is the only chat author → no other-author impostors
+    expect(emailImpostors.sort()).toEqual(["alice email one", "alice email two"]); // excludes op-1
+    // no OTHER author has chat exemplars → empty (operator's own chat excluded)
     expect(await others("operator", "chat")).toEqual([]);
   });
 });
