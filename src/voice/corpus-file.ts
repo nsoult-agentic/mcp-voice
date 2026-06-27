@@ -16,7 +16,7 @@ import type { CorpusSource } from "./build-voice";
 const CorpusEntrySchema = z.object({
   medium: z.enum(["slack", "claude"]),
   source_uri: z.string().min(1),
-  timestamp: z.string().min(1),
+  timestamp: z.string().datetime(), // ISO-8601; fail at the seam, not later at the record schema
   text: z.string().min(1),
 });
 const CorpusFileSchema = z.array(CorpusEntrySchema);

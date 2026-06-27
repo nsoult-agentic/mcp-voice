@@ -64,6 +64,12 @@ describe("file corpus source", () => {
         INPUT,
       ),
     ).rejects.toThrow();
+    // a non-ISO timestamp is rejected at the seam (not deferred to the record schema)
+    await expect(
+      sourceWith(
+        JSON.stringify([{ medium: "slack", source_uri: "x", timestamp: "yesterday", text: "y" }]),
+      ).pull(INPUT),
+    ).rejects.toThrow();
   });
 });
 
