@@ -13,7 +13,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 
 from . import calibration, features, gate
-from .models import CalibrateRequest, EvaluateRequest, FeaturesRequest
+from .models import CalibrateRequest, EvaluateRequest, FeaturesRequest, SeedRequest
 
 app = FastAPI(title="voice-eval-harness", version="0.1.0")
 
@@ -24,6 +24,14 @@ _PROFILES: dict[tuple[str, str], dict] = {}
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "profiles_loaded": len(_PROFILES)}
+
+
+@app.post("/seed")
+def seed(req: SeedRequest) -> dict:
+    # Restore a calibration the sidecar computed earlier (and storage persisted) into
+    # the in-memory cache, so /evaluate works again after a restart without a rebuild.
+    _PROFILES[(req.author_id, req.register)] = req.blob
+    return {"seeded": True, "profiles_loaded": len(_PROFILES)}
 
 
 @app.post("/calibrate")

@@ -34,8 +34,6 @@ function indexStatements(): string[] {
 }
 
 const STATEMENTS: string[] = [
-  "CREATE EXTENSION IF NOT EXISTS vector",
-  "CREATE SCHEMA IF NOT EXISTS voice",
   // CREATE TYPE has no IF NOT EXISTS; swallow duplicate on re-run.
   `DO $$ BEGIN
      CREATE TYPE voice.register AS ENUM ('chat', 'email', 'longform');
@@ -78,8 +76,30 @@ const STATEMENTS: string[] = [
   ...indexStatements(),
 ];
 
+/**
+ * Ensure the pgvector extension and `voice.` schema exist — the two bootstrap-level
+ * objects. Both are normally created once by a superuser (ops/bootstrap.sql), so the
+ * least-privilege `voice_rw` role that runs migrations in production lacks the
+ * database-level CREATE privilege these would need. We therefore CREATE them only
+ * when absent: in production they already exist (check passes, nothing run, no ACL
+ * error); in CI/tests the role owns a fresh database, so the CREATEs run.
+ */
+async function ensureExtensionAndSchema(sql: Sql): Promise<void> {
+  const [ext] =
+    await sql`SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') AS present`;
+  if (!ext?.["present"]) {
+    await sql.unsafe("CREATE EXTENSION IF NOT EXISTS vector");
+  }
+  const [schema] =
+    await sql`SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'voice') AS present`;
+  if (!schema?.["present"]) {
+    await sql.unsafe("CREATE SCHEMA IF NOT EXISTS voice");
+  }
+}
+
 /** Apply the `voice.` schema migration. Idempotent; runs each statement in order. */
 export async function applyMigrations(sql: Sql): Promise<void> {
+  await ensureExtensionAndSchema(sql);
   for (const statement of STATEMENTS) {
     await sql.unsafe(statement);
   }

@@ -73,10 +73,18 @@ export function createVoiceEngineFromEnv(): VoiceEngine {
   const sql = getDb();
   const claude = new Anthropic({ apiKey: getAnthropicKey() }) as unknown as ClaudeClient;
   const embedders = createNomicEmbedders({ baseUrl: env("OLLAMA_BASE_URL", DEFAULT_OLLAMA_URL) });
-  const evalClient = createEvalClient({ baseUrl: env("EVAL_HARNESS_URL", DEFAULT_EVAL_URL) });
 
   const exemplarStore = createExemplarStore({ sql, embedders });
   const profileStore = createProfileStore({ sql });
+
+  // The eval sidecar caches calibration in memory; on a restart it loses it and 404s.
+  // Give the client a loader for the persisted blob so it can re-seed and retry rather
+  // than failing until the next rebuild.
+  const evalClient = createEvalClient({
+    baseUrl: env("EVAL_HARNESS_URL", DEFAULT_EVAL_URL),
+    loadCalibration: (author_id, register) =>
+      profileStore.getActiveProfile(author_id, register).then((p) => p?.stylometric_vector ?? null),
+  });
 
   const buildProfile: BuildProfileDeps = {
     exemplars: exemplarStore,
