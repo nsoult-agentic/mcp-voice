@@ -12,7 +12,7 @@
 services:
   # ── TS MCP server (Streamable HTTP) ──────────────────────────────
   mcp-voice:
-    image: ghcr.io/nsoult-agentic/mcp-voice:sha-58c82b4
+    image: ghcr.io/nsoult-agentic/mcp-voice:sha-ae11a23
     container_name: mcp-voice
     restart: unless-stopped
     depends_on:
@@ -73,7 +73,7 @@ services:
 
   # ── Python eval-harness sidecar (Gate A stylometry) ──────────────
   mcp-voice-eval:
-    image: ghcr.io/nsoult-agentic/mcp-voice-eval:sha-58c82b4
+    image: ghcr.io/nsoult-agentic/mcp-voice-eval:sha-ae11a23
     container_name: mcp-voice-eval
     restart: unless-stopped
 
