@@ -1,24 +1,20 @@
 -- ============================================================================
 -- mcp-voice — one-time database bootstrap
 -- ============================================================================
--- Run ONCE, as a SUPERUSER (pai), against the second_brain database, BEFORE the
--- first deploy. It does the two things the application's own migration cannot do
--- as the least-privilege voice_rw role:
+-- Run ONCE, before the first deploy, by piping this file into the second-brain
+-- Postgres container as the pai superuser (local socket auth — no password):
 --
+--   docker exec -i second-brain-db psql -U pai -d second_brain < ops/bootstrap.sql
+--
+-- It does the two things the least-privilege voice_rw role cannot do itself:
 --   1. CREATE EXTENSION vector  — installing a non-trusted extension needs superuser.
---   2. CREATE ROLE voice_rw + CREATE SCHEMA voice AUTHORIZATION voice_rw — give the
---      app a dedicated role that owns ONLY the isolated voice. schema (never the
---      knowledge tables).
+--   2. CREATE ROLE voice_rw + CREATE SCHEMA voice AUTHORIZATION voice_rw — a dedicated
+--      role that owns ONLY the isolated voice. schema (never the knowledge tables).
 --
--- After this runs, the app connects as voice_rw and `bun run migrate` creates the
--- tables/indexes (its CREATE EXTENSION/SCHEMA IF NOT EXISTS calls then no-op).
---
--- The voice_rw password is supplied at runtime (never hard-coded here) and MUST
--- match /srv/mcp-voice/secrets/db-password:
---
---   psql -h 127.0.0.1 -U pai -d second_brain \
---        -v voice_pw="$(sudo cat /srv/mcp-voice/secrets/db-password)" \
---        -f ops/bootstrap.sql
+-- This file sets NO password (so no secret is committed). voice_rw is created with
+-- LOGIN but no password yet — set it in the second step (see DEPLOY.md), then the app
+-- connects as voice_rw and `bun run migrate` creates the tables/indexes (its
+-- CREATE EXTENSION/SCHEMA IF NOT EXISTS calls then no-op).
 -- ============================================================================
 
 \set ON_ERROR_STOP on
@@ -26,13 +22,11 @@
 -- 1. pgvector extension (shared across schemas; superuser-only to install).
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- 2. Dedicated least-privilege login role. Idempotent.
+-- 2. Dedicated least-privilege login role (password set separately). Idempotent.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'voice_rw') THEN
-    EXECUTE format('CREATE ROLE voice_rw LOGIN PASSWORD %L', :'voice_pw');
-  ELSE
-    EXECUTE format('ALTER ROLE voice_rw LOGIN PASSWORD %L', :'voice_pw');
+    CREATE ROLE voice_rw LOGIN;
   END IF;
 END
 $$;
@@ -45,4 +39,5 @@ CREATE SCHEMA IF NOT EXISTS voice AUTHORIZATION voice_rw;
 --    resolve it. This grants type resolution ONLY — not access to any public table.
 GRANT USAGE ON SCHEMA public TO voice_rw;
 
--- Done. Next: connect as voice_rw and run `bun run migrate`.
+-- Done. Next (DEPLOY.md): set the voice_rw password from the mounted secret, then
+-- connect as voice_rw and run `bun run migrate`.
