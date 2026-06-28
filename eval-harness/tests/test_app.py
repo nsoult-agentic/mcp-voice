@@ -83,9 +83,7 @@ def test_seed_restores_calibration_after_restart(client):
     evaluate_body = {"text": genuine[0], "author_id": "operator", "register": "email"}
     assert fresh.post("/evaluate", json=evaluate_body).status_code == 404  # cache wiped
 
-    seeded = fresh.post(
-        "/seed", json={"author_id": "operator", "register": "email", "blob": blob}
-    )
+    seeded = fresh.post("/seed", json={"author_id": "operator", "register": "email", "blob": blob})
     assert seeded.status_code == 200
     assert seeded.json()["seeded"] is True
 
