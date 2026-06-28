@@ -52,6 +52,10 @@ async function handleMcpRequest(req: Request): Promise<Response> {
 const httpServer = Bun.serve({
   port: PORT,
   hostname: "0.0.0.0",
+  // voice_generate runs a gated loop of Claude calls and buffers the whole response,
+  // so the socket can sit silent for far longer than Bun's 10s default idle timeout —
+  // which would drop the connection mid-generation (ECONNRESET). Raise it to the max.
+  idleTimeout: 255,
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
