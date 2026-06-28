@@ -35,18 +35,30 @@ Mac Mini (Claude Desktop, 172.16.10.50)
 
 ## One-time database bootstrap
 
-Run once before the first deploy. psql runs *inside* the Postgres container as the
-`pai` superuser over the local socket (same way every other DB op here is run — no
-host psql, no password prompt).
+Run once before the first deploy, on the NUC. psql runs *inside* the Postgres
+container as the `pai` superuser over the local socket (same way every other DB op
+here is run — no host psql, no password prompt). The SQL is inlined here so it works
+without a repo checkout on the NUC (deployment is Portainer GitOps; `ops/bootstrap.sql`
+is the same content, for reference).
 
 ```bash
 # 1. Extension + voice_rw role + voice. schema (no secret in this step).
-docker exec -i second-brain-db psql -U pai -d second_brain < ops/bootstrap.sql
+docker exec -i second-brain-db psql -U pai -d second_brain -v ON_ERROR_STOP=1 <<'SQL'
+CREATE EXTENSION IF NOT EXISTS vector;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'voice_rw') THEN
+    CREATE ROLE voice_rw LOGIN;
+  END IF;
+END $$;
+CREATE SCHEMA IF NOT EXISTS voice AUTHORIZATION voice_rw;
+GRANT USAGE ON SCHEMA public TO voice_rw;
+SQL
 
-# 2. Set the voice_rw password to match the mounted secret. The password flows over
-#    the pipe (stdin), never into argv or this repo. Run on the NUC; `sudo` because
-#    the secret file is root-owned. (Assumes the password contains no single quote.)
-printf "ALTER ROLE voice_rw PASSWORD %s;\n" "'$(sudo cat /srv/mcp-voice/secrets/db-password)'" \
+# 2. Set the voice_rw password to match the mounted secret. Quoting-safe (handles any
+#    character); the password goes over stdin, never into argv or this repo.
+PW=$(sudo cat /srv/mcp-voice/secrets/db-password)
+printf "ALTER ROLE voice_rw PASSWORD '%s';\n" "${PW//\'/\'\'}" \
   | docker exec -i second-brain-db psql -U pai -d second_brain
 ```
 
