@@ -61,6 +61,38 @@ def test_calibrate_then_evaluate_roundtrip(client):
     assert sum(v == "PASS" for v in verdicts) == 0
 
 
+def test_seed_restores_calibration_after_restart(client):
+    genuine, impostors = corpora()
+    blob = client.post(
+        "/calibrate",
+        json={
+            "author_id": "operator",
+            "register": "email",
+            "genuine": genuine,
+            "impostors": impostors,
+            "mfw_count": 100,
+        },
+    ).json()
+
+    # Simulate a sidecar restart: a fresh app with an empty in-memory cache.
+    from evalharness import app as app_module
+
+    importlib.reload(app_module)
+    fresh = TestClient(app_module.app)
+
+    evaluate_body = {"text": genuine[0], "author_id": "operator", "register": "email"}
+    assert fresh.post("/evaluate", json=evaluate_body).status_code == 404  # cache wiped
+
+    seeded = fresh.post("/seed", json={"author_id": "operator", "register": "email", "blob": blob})
+    assert seeded.status_code == 200
+    assert seeded.json()["seeded"] is True
+
+    # Re-seeded from the persisted blob → /evaluate works again without a rebuild.
+    g = fresh.post("/evaluate", json=evaluate_body)
+    assert g.status_code == 200
+    assert g.json()["verdict"] == "PASS"
+
+
 def test_bad_register_is_422(client):
     r = client.post("/evaluate", json={"text": "x", "author_id": "operator", "register": "sms"})
     assert r.status_code == 422

@@ -27,3 +27,14 @@ class EvaluateRequest(BaseModel):
 
 class FeaturesRequest(BaseModel):
     text: str
+
+
+class SeedRequest(BaseModel):
+    """Re-seed an in-memory calibration from a previously persisted /calibrate blob.
+
+    Lets the TS server restore the sidecar's cache after a restart without re-running
+    the full calibration (the blob lives in voice.profiles)."""
+
+    author_id: str
+    register: Register
+    blob: dict
