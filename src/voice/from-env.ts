@@ -15,6 +15,8 @@
  * schema until the live email/matrix adapters land.
  */
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import { getDb } from "../db";
 import { createExemplarStore } from "../exemplar-store";
@@ -37,16 +39,39 @@ const DEFAULT_EVAL_URL = "http://127.0.0.1:8920";
 const DEFAULT_OLLAMA_URL = "http://172.16.10.50:11434";
 const DEFAULT_CORPUS_PATH = "/srv/mcp-voice/corpus/operator.json";
 const INGEST_VERSION = "1";
+const SECRETS_DIR = process.env["SECRETS_DIR"] ?? "/secrets";
 
 function env(name: string, fallback: string): string {
   const v = process.env[name];
   return v !== undefined && v.length > 0 ? v : fallback;
 }
 
+/**
+ * Resolve the Anthropic API key the same way the DB password is resolved: the
+ * `ANTHROPIC_API_KEY` env wins (local/CI), else the mounted secret file (the fleet's
+ * file-based-secrets policy — no secrets in compose env). Errors are generic — they
+ * never echo the path or value.
+ */
+function getAnthropicKey(): string {
+  const fromEnv = process.env["ANTHROPIC_API_KEY"];
+  if (fromEnv !== undefined && fromEnv.length > 0) {
+    return fromEnv;
+  }
+  try {
+    const key = readFileSync(resolve(SECRETS_DIR, "anthropic-key"), "utf-8").trim();
+    if (key.length === 0) {
+      throw new Error("Key file is empty");
+    }
+    return key;
+  } catch {
+    throw new Error("Failed to load Anthropic key. Set ANTHROPIC_API_KEY or mount the secret.");
+  }
+}
+
 /** Construct the live VoiceEngine from the environment + existing infra. */
 export function createVoiceEngineFromEnv(): VoiceEngine {
   const sql = getDb();
-  const claude = new Anthropic() as unknown as ClaudeClient; // ANTHROPIC_API_KEY from env
+  const claude = new Anthropic({ apiKey: getAnthropicKey() }) as unknown as ClaudeClient;
   const embedders = createNomicEmbedders({ baseUrl: env("OLLAMA_BASE_URL", DEFAULT_OLLAMA_URL) });
   const evalClient = createEvalClient({ baseUrl: env("EVAL_HARNESS_URL", DEFAULT_EVAL_URL) });
 

@@ -1,0 +1,8 @@
+# Build context trimming for the mcp-voice-eval (Python) image.
+.venv
+tests
+.pytest_cache
+.ruff_cache
+*.egg-info
+__pycache__
+README.md
