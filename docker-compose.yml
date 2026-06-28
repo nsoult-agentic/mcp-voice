@@ -1,0 +1,118 @@
+# docker-compose.yml for mcp-voice (+ its Python eval-harness sidecar)
+# Deploy: Portainer → Stacks → Add from Repository → GitOps polling
+# CI/CD: GitHub Actions builds both images on push, updates the tags below.
+#
+# RUNS ON THE NUC: the voice. schema lives in the second_brain Postgres, which is
+# only reachable on the `second-brain` docker network (and 127.0.0.1 on the host).
+#
+# SECURITY: follows PAI hardened-container policy. Do NOT add docker.sock mounts,
+# privileged mode, host network/PID, extra capabilities, or secrets in environment.
+# Secrets are root-owned files mounted read-only from /srv/mcp-voice/secrets.
+
+services:
+  # ── TS MCP server (Streamable HTTP) ──────────────────────────────
+  mcp-voice:
+    image: ghcr.io/nsoult-agentic/mcp-voice:latest
+    container_name: mcp-voice
+    restart: unless-stopped
+    depends_on:
+      - mcp-voice-eval
+
+    # ── Network ──
+    networks:
+      - mcp_network      # reach the eval sidecar by name + sit behind the NPM proxy
+      - brain            # reach second-brain-db (the voice. schema)
+    ports:
+      - "127.0.0.1:8919:8919"  # loopback only; LAN clients reach /mcp via the proxy
+
+    # ── Security Hardening ──
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # ── Resource Limits ──
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+
+    # ── Filesystem ──
+    volumes:
+      # Secrets — root-owned on host, read-only in container (anthropic-key, db-password)
+      - /srv/mcp-voice/secrets:/secrets:ro
+      # Prepared corpus file (operator.json) — read-only
+      - /srv/mcp-voice/corpus:/srv/mcp-voice/corpus:ro
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+
+    # ── Health Check ──
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:8919/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    # ── Environment ──
+    environment:
+      - TZ=Europe/Madrid
+      - NODE_ENV=production
+      - SECRETS_DIR=/secrets
+      - PORT=8919
+      - MCP_ALLOWED_IPS=172.16.10.50            # Mac Mini (Claude Desktop) via NPM proxy
+      - DB_HOST=second-brain-db
+      - DB_PORT=5432
+      - DB_NAME=second_brain
+      - DB_USER=voice_rw                         # least-privilege role (see ops/bootstrap.sql)
+      - OLLAMA_BASE_URL=http://172.16.10.50:11434  # Mac Mini nomic-embed-text
+      - EVAL_HARNESS_URL=http://mcp-voice-eval:8920
+      - CORPUS_PATH=/srv/mcp-voice/corpus/operator.json
+
+  # ── Python eval-harness sidecar (Gate A stylometry) ──────────────
+  mcp-voice-eval:
+    image: ghcr.io/nsoult-agentic/mcp-voice-eval:latest
+    container_name: mcp-voice-eval
+    restart: unless-stopped
+
+    # Internal only — no host port; reachable solely by mcp-voice on mcp_network.
+    networks:
+      - mcp_network
+
+    # ── Security Hardening ──
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # ── Resource Limits ──
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+
+    # ── Health Check ──
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8920/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    environment:
+      - TZ=Europe/Madrid
+      - PYTHONUNBUFFERED=1
+
+networks:
+  mcp_network:
+    external: true
+  brain:
+    external: true
+    name: second-brain

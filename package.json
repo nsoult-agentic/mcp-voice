@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/http.ts",
+    "migrate": "bun run src/migrate.ts",
     "test": "bun test",
     "lint": "biome check src test",
     "format": "biome format --write src test",

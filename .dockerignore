@@ -1,0 +1,13 @@
+# Build context trimming for the mcp-voice (Bun) image.
+node_modules
+test
+eval-harness
+biome-plugins
+.git
+.github
+*.log
+dist
+README.md
+DEPLOY.md
+docker-compose.yml
+ops

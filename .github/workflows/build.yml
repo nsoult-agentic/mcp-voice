@@ -1,0 +1,69 @@
+name: Build mcp-voice
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "package.json"
+      - "Dockerfile"
+      - "tsconfig.json"
+      - "eval-harness/**"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set short SHA
+        id: sha
+        run: echo "short=$(echo '${{ github.sha }}' | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      # ── TS MCP server ──
+      - name: Build & push mcp-voice
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/mcp-voice:sha-${{ steps.sha.outputs.short }}
+            ghcr.io/${{ github.repository_owner }}/mcp-voice:latest
+
+      # ── Python eval-harness sidecar ──
+      - name: Build & push mcp-voice-eval
+        uses: docker/build-push-action@v5
+        with:
+          context: eval-harness
+          file: eval-harness/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/mcp-voice-eval:sha-${{ steps.sha.outputs.short }}
+            ghcr.io/${{ github.repository_owner }}/mcp-voice-eval:latest
+
+      - name: Update compose with new image tags
+        run: |
+          sed -i -E \
+            "s|image: ghcr.io/.*/mcp-voice:.*|image: ghcr.io/${{ github.repository_owner }}/mcp-voice:sha-${{ steps.sha.outputs.short }}|" \
+            docker-compose.yml
+          sed -i -E \
+            "s|image: ghcr.io/.*/mcp-voice-eval:.*|image: ghcr.io/${{ github.repository_owner }}/mcp-voice-eval:sha-${{ steps.sha.outputs.short }}|" \
+            docker-compose.yml
+
+      - name: Commit and push compose update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docker-compose.yml
+          git diff --staged --quiet || git commit -m "ci: update mcp-voice image tags [skip ci]"
+          git push
