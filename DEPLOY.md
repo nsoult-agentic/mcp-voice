@@ -76,16 +76,17 @@ startup — no stack env vars needed for either.
 
 ### Security preconditions (verify before exposing)
 
-These are load-bearing — the `/mcp` IP allowlist only holds if both are true:
+Access control is enforced **solely at the NPM reverse proxy** (fleet policy,
+second-brain #2526). The app does **not** gate access — it has no IP allowlist; it
+only rate-limits `/mcp` as abuse protection. These remain load-bearing:
 
 - **Loopback-scoped publish.** The compose publishes `127.0.0.1:8919:8919`. Never
-  change it to `8919:8919` (that would expose `/mcp` to the whole LAN, where a
-  request with no `X-Forwarded-For` is treated as trusted loopback).
-- **Proxy overwrites XFF.** The NPM proxy must set
-  `proxy_set_header X-Forwarded-For $remote_addr` (overwrite), **not**
-  `$proxy_add_x_forwarded_for` (append). The gate trusts the first XFF hop; appending
-  would let a client spoof it. This matches the rest of the fleet (mcp-accounting/
-  mcp-email) — it is a shared proxy decision.
+  change it to `8919:8919` — that would expose `/mcp` to the whole LAN, bypassing the
+  proxy. The container must be reachable only via the NPM proxy or host loopback.
+- **Proxy enforces the IP allowlist.** The NPM proxy is the single access-control
+  layer for `/mcp`; the app trusts every request it receives. Keep the allowlist
+  configured on the proxy (the same shared proxy decision as the rest of the fleet,
+  e.g. mcp-accounting/mcp-email).
 
 ## First run
 

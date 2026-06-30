@@ -62,7 +62,6 @@ services:
       - NODE_ENV=production
       - SECRETS_DIR=/secrets
       - PORT=8919
-      - MCP_ALLOWED_IPS=172.16.10.50            # Mac Mini (Claude Desktop) via NPM proxy
       - DB_HOST=second-brain-db
       - DB_PORT=5432
       - DB_NAME=second_brain

@@ -1,36 +1,15 @@
 /**
- * Access gate for the /mcp HTTP route — the security-relevant decisions, factored out
- * of `src/http.ts` so they're unit-testable without booting the server/engine. Pure
- * functions only (the rate limiter takes its window state as an argument); `http.ts`
- * owns the singleton state and wiring.
+ * Abuse-protection gate for the /mcp HTTP route — the rate-limit decision, factored out
+ * of `src/http.ts` so it's unit-testable without booting the server/engine. Pure
+ * function only (the limiter takes its window state as an argument); `http.ts` owns the
+ * singleton state and wiring.
+ *
+ * NOTE: this server performs NO app-level access control. Access is enforced solely at
+ * the NPM reverse proxy (fleet policy, second-brain #2526); the container binds
+ * 127.0.0.1 only and is reachable just via that proxy or loopback, so every request the
+ * app receives is already trusted. Rate limiting below is abuse protection, not access
+ * control, and stays.
  */
-
-/** Parse `MCP_ALLOWED_IPS` (comma-separated) into a set of trimmed, non-empty IPs. */
-export function parseAllowedIps(raw: string | undefined): Set<string> {
-  return new Set(
-    (raw ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-  );
-}
-
-/**
- * Decide whether a request may reach /mcp. A request with no `X-Forwarded-For` is a
- * direct loopback connection (the reverse proxy always sets XFF) and is allowed; a
- * proxied request is allowed only if its originating client IP (the first XFF hop) is
- * on the allowlist.
- */
-export function isClientAllowed(
-  forwardedFor: string | null,
-  allowed: ReadonlySet<string>,
-): boolean {
-  if (forwardedFor === null) {
-    return true;
-  }
-  const clientIp = forwardedFor.split(",")[0]?.trim() ?? "";
-  return allowed.has(clientIp);
-}
 
 /** Mutable counter window for {@link isRateLimited}. */
 export interface RateWindow {
@@ -55,4 +34,28 @@ export function isRateLimited(
   }
   window.count += 1;
   return window.count > max;
+}
+
+/**
+ * Pre-engine gate for the /mcp route. The ONLY decision here is abuse protection: return
+ * a 429 Response when the fixed-window rate limit is exceeded, otherwise `null` to let
+ * the request proceed to the MCP transport. Mutates `window` in place.
+ *
+ * Deliberately performs NO access control — it does not read `X-Forwarded-For` or any
+ * other origin signal. Access is enforced upstream at the NPM reverse proxy (fleet
+ * policy, second-brain #2526); the container binds 127.0.0.1 only, so every request the
+ * app sees is already trusted. `req` is accepted for symmetry with other fleet gates and
+ * to keep a single call site, but its origin is intentionally not inspected.
+ */
+export function mcpGate(
+  _req: Request,
+  window: RateWindow,
+  now: number,
+  windowMs: number,
+  max: number,
+): Response | null {
+  if (isRateLimited(window, now, windowMs, max)) {
+    return new Response("Rate limit exceeded", { status: 429 });
+  }
+  return null;
 }
