@@ -6,24 +6,24 @@
  *
  * Routes:
  *   GET  /health  — liveness probe (no auth; used by the container healthcheck)
- *   POST /mcp     — MCP Streamable HTTP, stateless; gated by the client-IP allowlist
+ *   POST /mcp     — MCP Streamable HTTP, stateless; rate-limited (no app access control)
  *
- * SECURITY: `/mcp` calls Claude (cost) and reads the operator's voice corpus, so it is
- * not world-open. Direct loopback (no X-Forwarded-For) is always allowed; any proxied
- * request must carry an allowlisted client IP (`MCP_ALLOWED_IPS`). A coarse fixed-window
- * rate limit caps request volume. The gate logic lives in `./http-gate` (unit-tested);
- * this mirrors the reviewed mcp-accounting/mcp-email gate.
+ * SECURITY: access control is enforced solely at the NPM reverse proxy (fleet policy,
+ * second-brain #2526). The container binds 127.0.0.1 only and is reachable just via that
+ * proxy (which holds the IP allowlist) or loopback, so every request the app receives is
+ * already trusted — the app does NOT gate access itself. A coarse fixed-window rate limit
+ * still caps request volume as abuse protection (Claude cost). That logic lives in
+ * `./http-gate` (unit-tested).
  *
  * Usage: PORT=8919 SECRETS_DIR=/secrets bun run src/http.ts
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { isClientAllowed, isRateLimited, parseAllowedIps, type RateWindow } from "./http-gate";
+import { mcpGate, type RateWindow } from "./http-gate";
 import { createMcpServer } from "./voice/mcp/server";
 import { createVoiceEngineFromEnv } from "./voice/from-env";
 
 const PORT = Number.parseInt(process.env["PORT"] ?? "8919", 10);
-const ALLOWED_IPS = parseAllowedIps(process.env["MCP_ALLOWED_IPS"]);
 
 const WINDOW_MS = 60_000;
 const MAX_REQUESTS = 120;
@@ -36,11 +36,11 @@ const rateWindow: RateWindow = { start: 0, count: 0 };
 const engine = createVoiceEngineFromEnv();
 
 async function handleMcpRequest(req: Request): Promise<Response> {
-  if (!isClientAllowed(req.headers.get("x-forwarded-for"), ALLOWED_IPS)) {
-    return new Response("Forbidden", { status: 403 });
-  }
-  if (isRateLimited(rateWindow, Date.now(), WINDOW_MS, MAX_REQUESTS)) {
-    return new Response("Rate limit exceeded", { status: 429 });
+  // The proxy (not the app) decides access; here we only apply abuse protection. The
+  // request is intentionally NOT inspected for its origin / X-Forwarded-For.
+  const rejection = mcpGate(req, rateWindow, Date.now(), WINDOW_MS, MAX_REQUESTS);
+  if (rejection !== null) {
+    return rejection;
   }
   const server: McpServer = createMcpServer(engine);
   // Stateless mode: omitting sessionIdGenerator leaves it undefined (no sessions).
