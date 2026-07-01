@@ -23,10 +23,22 @@ Mac Mini (Claude Desktop, 172.16.10.50)
 
 ## Prerequisites (on the NUC)
 
-1. **Secrets** — root-owned, `0400`, under `/srv/mcp-voice/secrets/` (mounted read-only
-   at `/secrets`; read directly from file, never via compose env):
+1. **Secrets** — owned by **uid 1000** (the container's non-root `bun` user),
+   mode `0400`, under `/srv/mcp-voice/secrets/` (mounted read-only at `/secrets`;
+   read directly from file by the app at runtime, never via compose env):
    - `anthropic-key` — the Anthropic API key.
    - `db-password` — the `voice_rw` role password.
+
+   `/srv` writes need `sudo` (→ `root:root`), but the container runs non-root as
+   `bun` (uid 1000) and can't read a root-owned file — it would fail to reach
+   Anthropic / the DB. So **chown to uid 1000 after placing**:
+   ```sh
+   sudo install -d -m 0700 /srv/mcp-voice/secrets
+   printf '%s' '<ANTHROPIC_KEY>'     | sudo install -m 0400 /dev/stdin /srv/mcp-voice/secrets/anthropic-key
+   printf '%s' '<VOICE_RW_PASSWORD>' | sudo install -m 0400 /dev/stdin /srv/mcp-voice/secrets/db-password
+   sudo chown -R 1000:1000 /srv/mcp-voice/secrets
+   ls -aln /srv/mcp-voice/secrets   # expect uid 1000 gid 1000, files 0400
+   ```
 2. **Corpus** — the prepared corpus at `/srv/mcp-voice/corpus/operator.json`
    (see [Corpus](#corpus)). Directory readable by the container (uid 1000 / bun).
 3. **Networks** — both already exist on the NUC:
